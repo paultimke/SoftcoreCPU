@@ -26,14 +26,15 @@ fn main() {
 
         // Execute Stage 
         match FromPrimitive::from_u8(opcode) {
-            Some(Opcode::MovIm) => execute::mov_im(&mut regs),
-            Some(Opcode::MovRg) => execute::mov_rg(&mut regs),
-            Some(Opcode::Load)  => execute::load(&mut regs, &mem),
+            Some(Opcode::MovIm)  => execute::mov_im(&mut regs),
+            Some(Opcode::MovRg)  => execute::mov_rg(&mut regs),
+            Some(Opcode::Load)   => execute::load(&mut regs, &mem),
             Some(Opcode::LoadRg) => execute::load_rg(&mut regs, &mem),
-            Some(Opcode::Store) => execute::store(&regs, &mut mem),
-            Some(Opcode::StrRg) => execute::store_rg(&regs, &mut mem),
+            Some(Opcode::Store)  => execute::store(&regs, &mut mem),
+            Some(Opcode::StrRg)  => execute::store_rg(&regs, &mut mem),
             _ => break,
         }
+        regs.pc += 1;
     }
 }
 
@@ -73,10 +74,10 @@ fn load_program(bin_path: &str, mem: &mut Vec<u16>) -> () {
     const STACK_LENGTH: usize = 50;
     mem.resize(CODE_SECTION_LENGTH + STACK_LENGTH, 0);
 
-    let mut i = 0; // Index to each memory word (2 bytes)
-    while i < bytes.len() {
+    let mut w = 0; // Index to each memory word (2 bytes)
+    for idx in 0..(bytes.len()/2) {
         // Convert each two-byte group into a 16-bit word
-        mem[i] = u16::from_be_bytes([bytes[i], bytes[i+1]]);
-        i += 2;
+        mem[idx] = u16::from_be_bytes([bytes[w], bytes[w+1]]);
+        w += 2;
     }
 }
