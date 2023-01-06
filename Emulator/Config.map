@@ -1,0 +1,21 @@
+# This is taking into account the architecture of:
+# 16-bit words, 11-bit addresses -> up to 2K locations
+# Length is specified in bytes
+MEMORY {
+    START_ADDRESS = 0x000,
+    LENGTH = 2048
+}
+
+SECTIONS {
+    .code {
+        # Three fourths of memory dedicated to code section
+        START_ADDRESS = 0x000,
+        LENGTH = 1536
+    }
+
+    .stack {
+        # Initialize start address at last location, since stack
+        # grows downwards
+        START_ADDRESS = 0x7FF,
+    }
+}
