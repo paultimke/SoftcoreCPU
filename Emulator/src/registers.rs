@@ -5,9 +5,9 @@ pub const SP_PTR: usize = 5;        // Address of General Purpose Register SP
 
 // Register type, gerneral purpose and special purpose
 pub struct Registers {
-    pub gp: [u16; REG_TOTAL_NUM],
+    pub gp: [i16; REG_TOTAL_NUM],
     pub pc:  u16,
-    pub acc: u16,
+    pub acc: i16,
     pub ir:  u16,
     pub mar: u16,
 } 
