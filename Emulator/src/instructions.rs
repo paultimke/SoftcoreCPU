@@ -4,7 +4,7 @@ use num_derive::FromPrimitive;
 // Type Declarations
 type Memory = Vec<u16>;
 
-// Opcode numerical translations
+// Opcode numerical translations (From 0x00 to 0x16)
 #[derive(FromPrimitive)]
 pub enum Opcode {
     MovIm,  // MOV immediate (MOV {reg_dst} {constant})
@@ -25,10 +25,10 @@ pub enum Opcode {
     Or,     // Bitwise OR (OR {reg_dst} {reg_A} {reg_B})
     Not,    // Bitwise NOT (NOT {reg_dst} {reg_src})
     Bal,    // Branch always (BAL {label})
-    BZR,    // Branch if zero (BZR {label})
-    BNG,    // Branch if negative (BNG {label})
-    BLN,    // Branch with link (BLN {label})
-    RET,    // Return from branch (RET)
+    Bzr,    // Branch if zero (BZR {label})
+    Bng,    // Branch if negative (BNG {label})
+    Bln,    // Branch with link (BLN {label})
+    Ret,    // Return from branch (RET)
     Halt,   // Halts program execution until system reset
 }
 
@@ -65,7 +65,7 @@ pub mod execute {
                 PUSHPOP_NUM_ROFFSET, MATH_CONSTANT_ROFFSET, MATH_CONSTANT_SIZE, 
                 SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET,
     };
-    use super::super::registers::{Registers, Flags, MBR_PTR, SP_PTR};
+    use super::super::registers::{Registers, Flags, MBR_PTR, SP_PTR, LNR_PTR};
 
     // Moves an immediate constant value into a destination register
     pub fn mov_im(regs: &mut Registers) -> () {
@@ -326,11 +326,41 @@ pub mod execute {
     }
 
     // Branch if zero 
-    /*pub fn bzr(regs: &mut Registers, mem: &Memory) -> () {
-        if regs.flags
+    pub fn bzr(regs: &mut Registers) -> () {
+        // false is passed as constructor parameter to Flags::ZR
+        // just to complete the type. But value of actual flag is not mutated
+        // and just read.
+        if regs.read_flag(Flags::ZR(false)) {
+            let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
+            regs.pc = label as u16;
+        }
+    }
+
+    // Branch if negative 
+    pub fn bng(regs: &mut Registers) -> () {
+        // false is passed as constructor parameter to Flags::ZR
+        // just to complete the type. But value of actual flag is not mutated
+        // and just read.
+        if regs.read_flag(Flags::NG(false)) {
+            let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
+            regs.pc = label as u16;
+        }
+    }
+
+    // Branch with link
+    pub fn bln(regs: &mut Registers) -> () {
         let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
+        // Save return value in link register
+        regs.gp[LNR_PTR] = regs.pc as i16;
+        // Do the actual jump
         regs.pc = label as u16;
-    }*/
+    }
+
+    // Return from branch with link
+    pub fn ret(regs: &mut Registers) -> () {
+        // Jumps to return address saved in link register
+        regs.pc = regs.gp[LNR_PTR] as u16;
+    }
 }
 
 

@@ -10,10 +10,10 @@ use registers::*;
 
 fn main() {
     // Declare hardware components
-    let mut regs = Registers::new();  // General Purpose Registers
+    let mut regs = Registers::new();  // Registers
     let mut mem = Vec::new();         // Main memory (16-bit words)
 
-    // Load the bytes of the binary file into a vector to work on
+    // Load the bytes of the binary file into a vector (Main memory)
     load_program("file.bin", &mut mem);
  
     // Fetch-Decode-Execute Cycle
@@ -43,8 +43,13 @@ fn main() {
             Some(Opcode::And)    => execute::and(&mut regs),
             Some(Opcode::Or)     => execute::or(&mut regs),
             Some(Opcode::Not)    => execute::not(&mut regs),
-            Some(Opcode::Halt)   => { println!("Program Halted");
-                                      break },
+            Some(Opcode::Bal)    => {execute::bal(&mut regs); continue},
+            Some(Opcode::Bzr)    => {execute::bzr(&mut regs); continue},
+            Some(Opcode::Bng)    => {execute::bng(&mut regs); continue},
+            Some(Opcode::Bln)    => {execute::bln(&mut regs); continue},
+            Some(Opcode::Ret)    => {execute::ret(&mut regs); continue},
+            Some(Opcode::Halt)   => {println!("Program Halted Normally");
+                                     break },
             _ => panic!("Unrecognized Opcode"),
         }
         regs.pc += 1;
