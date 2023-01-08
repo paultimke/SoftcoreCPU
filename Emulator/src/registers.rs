@@ -10,14 +10,40 @@ pub struct Registers {
     pub acc: i16,
     pub ir:  u16,
     pub mar: u16,
+    pub flags: u8
 } 
+
+pub enum Flags {
+    OV(bool),
+    CA(bool),
+    ZR(bool),
+    NG(bool)
+}
 
 impl Registers {
     pub fn new() -> Self {
         Self {
             gp: [0; REG_TOTAL_NUM],
             pc: 0, acc: 0,
-            ir: 0, mar: 0
+            ir: 0, mar: 0, flags: 0,
+        }
+    }
+
+    //   7..4     3    2    1    0
+    // | unused | NG | ZR | CA | OV |
+    pub fn change_flags (&mut self, flags: Vec<Flags>) {
+        for f in flags {
+
+            match f {
+                Flags::NG(false) => self.flags |= 1 << (Flags::NG as u8),
+                Flags::NG(true)  => self.flags &= !(1 << (Flags::NG as u8)),
+                Flags::ZR(false) => self.flags |= 1 << (Flags::ZR as u8),
+                Flags::ZR(true)  => self.flags &= !(1 << (Flags::ZR as u8)),
+                Flags::CA(false) => self.flags |= 1 << (Flags::CA as u8),
+                Flags::CA(true)  => self.flags &= !(1 << (Flags::CA as u8)),
+                Flags::OV(false) => self.flags |= 1 << (Flags::OV as u8),
+                Flags::OV(true)  => self.flags &= !(1 << (Flags::OV as u8)),
+            }
         }
     }
 }

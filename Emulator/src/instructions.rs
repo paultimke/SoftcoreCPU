@@ -24,7 +24,12 @@ pub enum Opcode {
     And,    // Biwise AND (AND {reg_dst} {reg_A} {reg_B})
     Or,     // Bitwise OR (OR {reg_dst} {reg_A} {reg_B})
     Not,    // Bitwise NOT (NOT {reg_dst} {reg_src})
-    Halt = 22,   // Halts program execution until system reset
+    Bal,    // Branch always (BAL {label})
+    BZR,    // Branch if zero (BZR {label})
+    BNG,    // Branch if negative (BNG {label})
+    BLN,    // Branch with link (BLN {label})
+    RET,    // Return from branch (RET)
+    Halt,   // Halts program execution until system reset
 }
 
 // Instruction frame constants
@@ -60,7 +65,7 @@ pub mod execute {
                 PUSHPOP_NUM_ROFFSET, MATH_CONSTANT_ROFFSET, MATH_CONSTANT_SIZE, 
                 SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET,
     };
-    use super::super::registers::{Registers, MBR_PTR, SP_PTR};
+    use super::super::registers::{Registers, Flags, MBR_PTR, SP_PTR};
 
     // Moves an immediate constant value into a destination register
     pub fn mov_im(regs: &mut Registers) -> () {
@@ -139,7 +144,21 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let val = extract_bits(regs.ir, MATH_CONSTANT_SIZE, MATH_CONSTANT_ROFFSET);
-        regs.gp[reg_dst] = regs.gp[reg_a] + (val as i16);
+
+        match regs.gp[reg_a].checked_add(val as i16) {
+            Some(v) => {
+                regs.gp[reg_dst] = v;
+                regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+                match v {
+                    0          => regs.change_flags(vec![Flags::ZR(true),
+                                                         Flags::NG(false)]),
+                    v if v < 0 => regs.change_flags(vec![Flags::ZR(false),
+                                                         Flags::NG(true)]),
+                    _          => (),
+                }
+            }
+            None => regs.change_flags(vec![Flags::OV(true), Flags::CA(true)])
+        }
     }
 
     // Adds the contents of reg_A and reg_B and stores the result in reg_dst
@@ -147,7 +166,21 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let reg_b = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS2_ROFFSET);
-        regs.gp[reg_dst] = regs.gp[reg_a] + regs.gp[reg_b];
+
+        match regs.gp[reg_a].checked_add(regs.gp[reg_b]) {
+            Some(v) => {
+                regs.gp[reg_dst] = v;
+                regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+                match v {
+                    0          => regs.change_flags(vec![Flags::ZR(true),
+                                                         Flags::NG(false)]),
+                    v if v < 0 => regs.change_flags(vec![Flags::ZR(false),
+                                                         Flags::NG(true)]),
+                    _          => (),
+                }
+            }
+            None => regs.change_flags(vec![Flags::OV(true), Flags::CA(true)])
+        }
     }
 
     // Subtracts an immediate constant to reg_A and stores the result in reg_dst
@@ -155,7 +188,25 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let val = extract_bits(regs.ir, MATH_CONSTANT_SIZE, MATH_CONSTANT_ROFFSET);
-        regs.gp[reg_dst] = regs.gp[reg_a] - (val as i16);
+
+        match regs.gp[reg_a].checked_sub(val as i16) {
+            Some(v) => {
+                regs.gp[reg_dst] = v;
+                regs.change_flags(vec![Flags::OV(false)]);
+                match v {
+                    v if v == 0 => regs.change_flags(vec![Flags::CA(true),
+                                                          Flags::ZR(true),
+                                                          Flags::NG(false)]),
+                    v if v > 0  => regs.change_flags(vec![Flags::CA(true),
+                                                          Flags::ZR(false),
+                                                          Flags::NG(false)]),
+                    _           => regs.change_flags(vec![Flags::CA(false),
+                                                          Flags::ZR(false),
+                                                          Flags::NG(true)]),
+                }
+            }
+            None => regs.change_flags(vec![Flags::OV(true)])
+        }
     }
 
     // Subtracts the contents of reg_A and reg_B and stores the result in reg_dst
@@ -163,7 +214,25 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let reg_b = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS2_ROFFSET);
-        regs.gp[reg_dst] = regs.gp[reg_a] - regs.gp[reg_b];
+
+        match regs.gp[reg_a].checked_sub(regs.gp[reg_b]) {
+            Some(v) => {
+                regs.gp[reg_dst] = v;
+                regs.change_flags(vec![Flags::OV(false)]);
+                match v {
+                    v if v == 0 => regs.change_flags(vec![Flags::CA(true),
+                                                          Flags::ZR(true),
+                                                          Flags::NG(false)]),
+                    v if v > 0  => regs.change_flags(vec![Flags::CA(true),
+                                                          Flags::ZR(false),
+                                                          Flags::NG(false)]),
+                    _           => regs.change_flags(vec![Flags::CA(false),
+                                                          Flags::ZR(false),
+                                                          Flags::NG(true)]),
+                }
+            }
+            None => regs.change_flags(vec![Flags::OV(true)])
+        }
     }
     
     // Shifts constant bits left from reg_src and stores result in reg_dst
@@ -171,7 +240,16 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_src = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let val = extract_bits(regs.ir, SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET);
+        
         regs.gp[reg_dst] = regs.gp[reg_src] << (val as u16);
+        if regs.gp[reg_dst] == 0 {
+            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+        }
+        else if regs.gp[reg_dst] < 0 {
+            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+        }
+
+        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
     }
 
     // Shifts constant bits left from reg_src and stores result in reg_dst
@@ -179,7 +257,16 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_src = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let val = extract_bits(regs.ir, SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET);
+        
         regs.gp[reg_dst] = regs.gp[reg_src] >> (val as u16);
+        if regs.gp[reg_dst] == 0 {
+            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+        }
+        else if regs.gp[reg_dst] < 0 {
+            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+        }
+
+        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
     }
 
     // Bitwise ANDs reg_A and reg_B and stores the result in reg_dst
@@ -187,7 +274,16 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let reg_b = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS2_ROFFSET);
+
         regs.gp[reg_dst] = regs.gp[reg_a] & regs.gp[reg_b];
+        if regs.gp[reg_dst] == 0 {
+            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+        }
+        else if regs.gp[reg_dst] < 0 {
+            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+        }
+
+        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
     }
 
     // Bitwise ORs reg_A and reg_B and stores the result in reg_dst
@@ -195,23 +291,54 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
         let reg_b = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS2_ROFFSET);
+
         regs.gp[reg_dst] = regs.gp[reg_a] | regs.gp[reg_b];
+        if regs.gp[reg_dst] == 0 {
+            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+        }
+        else if regs.gp[reg_dst] < 0 {
+            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+        }
+
+        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
     }
 
     // Bitwise inverts reg_src and stores the result in reg_dst
     pub fn not(regs: &mut Registers) -> () {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_src = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
+
         regs.gp[reg_dst] = !regs.gp[reg_src];
+        if regs.gp[reg_dst] == 0 {
+            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+        }
+        else if regs.gp[reg_dst] < 0 {
+            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+        }
+
+        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
     }
 
+    // Branch to address in label
+    pub fn bal(regs: &mut Registers) -> () {
+        let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
+        regs.pc = label as u16;
+    }
+
+    // Branch if zero 
+    /*pub fn bzr(regs: &mut Registers, mem: &Memory) -> () {
+        if regs.flags
+        let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
+        regs.pc = label as u16;
+    }*/
 }
+
 
 // Helper function to extract the value of size amount of bits offseted
 // by right_offset from the right.
 // Example: size = 3, right_offset = 5 on num = 0110 1[011] 1000 0110 
 //          yields -> 011 (decimal 7)
-fn extract_bits(num: u16, size: usize, right_offset: usize) -> usize {
+pub fn extract_bits(num: u16, size: usize, right_offset: usize) -> usize {
     let left_offset = 16 - right_offset - size;
     
     // Mask to clear the bits other thant what we're interested
