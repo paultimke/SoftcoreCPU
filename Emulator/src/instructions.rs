@@ -368,7 +368,7 @@ pub mod execute {
 // by right_offset from the right.
 // Example: size = 3, right_offset = 5 on num = 0110 1[011] 1000 0110 
 //          yields -> 011 (decimal 7)
-pub fn extract_bits(num: u16, size: usize, right_offset: usize) -> usize {
+fn extract_bits(num: u16, size: usize, right_offset: usize) -> usize {
     let left_offset = 16 - right_offset - size;
     
     // Mask to clear the bits other thant what we're interested
