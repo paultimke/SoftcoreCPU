@@ -15,10 +15,10 @@ pub struct Registers {
 } 
 
 pub enum Flags {
-    OV(bool),
-    CA(bool),
-    ZR(bool),
-    NG(bool)
+    OV,
+    CA,
+    ZR,
+    NG
 }
 
 impl Registers {
@@ -32,18 +32,18 @@ impl Registers {
 
     //   7..4     3    2    1    0
     // | unused | NG | ZR | CA | OV |
-    pub fn change_flags(&mut self, flags: Vec<Flags>) -> () {
+    pub fn change_flags(&mut self, flags: Vec<(Flags, bool)>) -> () {
         for f in flags {
 
             match f {
-                Flags::NG(false) => self.flags |= 1 << (Flags::NG as u8),
-                Flags::NG(true)  => self.flags &= !(1 << (Flags::NG as u8)),
-                Flags::ZR(false) => self.flags |= 1 << (Flags::ZR as u8),
-                Flags::ZR(true)  => self.flags &= !(1 << (Flags::ZR as u8)),
-                Flags::CA(false) => self.flags |= 1 << (Flags::CA as u8),
-                Flags::CA(true)  => self.flags &= !(1 << (Flags::CA as u8)),
-                Flags::OV(false) => self.flags |= 1 << (Flags::OV as u8),
-                Flags::OV(true)  => self.flags &= !(1 << (Flags::OV as u8)),
+                (Flags::NG, false) => self.flags |= 1 << (Flags::NG as u8),
+                (Flags::NG, true)  => self.flags &= !(1 << (Flags::NG as u8)),
+                (Flags::ZR, false) => self.flags |= 1 << (Flags::ZR as u8),
+                (Flags::ZR, true)  => self.flags &= !(1 << (Flags::ZR as u8)),
+                (Flags::CA, false) => self.flags |= 1 << (Flags::CA as u8),
+                (Flags::CA, true)  => self.flags &= !(1 << (Flags::CA as u8)),
+                (Flags::OV, false) => self.flags |= 1 << (Flags::OV as u8),
+                (Flags::OV, true)  => self.flags &= !(1 << (Flags::OV as u8)),
             }
         }
     }
@@ -53,13 +53,13 @@ impl Registers {
         // wanted bit is least significant bit.
         // Finally compare to 1 to either return true (if 1) or false (if 0)
         match flag {
-            Flags::NG(_) => 
+            Flags::NG => 
                 (self.flags & !(1<<(Flags::NG as u8))) >> (Flags::NG as u8) == 1,
-            Flags::ZR(_) => 
+            Flags::ZR => 
                 (self.flags & !(1<<(Flags::ZR as u8))) >> (Flags::ZR as u8) == 1,
-            Flags::CA(_) =>
+            Flags::CA =>
                 (self.flags & !(1<<(Flags::CA as u8))) >> (Flags::CA as u8) == 1,
-            Flags::OV(_) =>
+            Flags::OV =>
                 (self.flags & !(1<<(Flags::OV as u8))) >> (Flags::OV as u8) == 1,
         }
     }
