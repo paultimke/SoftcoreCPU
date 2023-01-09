@@ -24,11 +24,17 @@ pub enum Opcode {
     And,    // Biwise AND (AND {reg_dst} {reg_A} {reg_B})
     Or,     // Bitwise OR (OR {reg_dst} {reg_A} {reg_B})
     Not,    // Bitwise NOT (NOT {reg_dst} {reg_src})
-    Bal,    // Branch always (BAL {label})
-    Bzr,    // Branch if zero (BZR {label})
-    Bng,    // Branch if negative (BNG {label})
+    Jmp,    // Branch always (Jmp {label})
     Bln,    // Branch with link (BLN {label})
-    Ret,    // Return from branch (RET)
+    Ret,    // Return from branch (RET {label})
+    CmpIm,  // Compare immediate (CMP {reg_A} {constant})
+    CmpRg,  // Compare registers (CMP {reg_A} {reg_B})
+    Beq,    // Branch if equal (BEQ {label})
+    Bne,    // Branch if not equal (BNE {label})
+    Bgt,    // Branch if greater than signed (BGT {label})
+    Bgtu,   // Branch if greater than unsigned (BGTU {label})
+    Blt,    // Branch if less than signed (BLT {label})
+    Bltu,   // Branch if less than unsigned (BLTU {label})
     Halt,   // Halts program execution until system reset
 }
 
@@ -49,28 +55,28 @@ const MEM_LABEL_SIZE: usize       = 11;
 const MEM_LABEL_ROFFSET: usize    = OPCODE_SIZE;
 const PUSHPOP_NUM_SIZE: usize     = 2;
 const PUSHPOP_NUM_ROFFSET: usize  = REG_POS2_ROFFSET + REG_ADDR_SIZE;
-const MOV_CONSTANT_SIZE: usize    = 8;
-const MOV_CONSTANT_ROFFSET: usize = REG_POS0_ROFFSET + REG_ADDR_SIZE;
-const MATH_CONSTANT_SIZE: usize   = 5;
-const MATH_CONSTANT_ROFFSET:usize = REG_POS1_ROFFSET + REG_ADDR_SIZE;
-const SHFT_CONSTANT_SIZE: usize   = 4;
-const SHFT_CONSTANT_ROFFSET: usize = REG_POS1_ROFFSET + REG_ADDR_SIZE;
+const B8_CONSTANT_SIZE: usize     = 8;
+const B8_CONSTANT_ROFFSET: usize  = REG_POS0_ROFFSET + REG_ADDR_SIZE;
+const B5_CONSTANT_SIZE: usize     = 5;
+const B5_CONSTANT_ROFFSET:usize   = REG_POS1_ROFFSET + REG_ADDR_SIZE;
+const B4_CONSTANT_SIZE: usize     = 4;
+const B4_CONSTANT_ROFFSET: usize  = REG_POS1_ROFFSET + REG_ADDR_SIZE;
 
 // Module to execute instructions
 pub mod execute {
     use super::{Memory, extract_bits, REG_ADDR_SIZE, REG_POS0_ROFFSET, 
-                MOV_CONSTANT_SIZE, MOV_CONSTANT_ROFFSET, REG_POS1_ROFFSET,
+                B8_CONSTANT_SIZE, B8_CONSTANT_ROFFSET, REG_POS1_ROFFSET,
                 REG_POS2_ROFFSET, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET, 
                 MEM_OFFSET_SIZE, MEM_OFFSET_ROFFSET, PUSHPOP_NUM_SIZE, 
-                PUSHPOP_NUM_ROFFSET, MATH_CONSTANT_ROFFSET, MATH_CONSTANT_SIZE, 
-                SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET,
+                PUSHPOP_NUM_ROFFSET, B5_CONSTANT_ROFFSET, B5_CONSTANT_SIZE, 
+                B4_CONSTANT_SIZE, B4_CONSTANT_ROFFSET,
     };
     use super::super::registers::{Registers, Flags, MBR_PTR, SP_PTR, LNR_PTR};
 
     // Moves an immediate constant value into a destination register
     pub fn mov_im(regs: &mut Registers) -> () {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
-        let val = extract_bits(regs.ir, MOV_CONSTANT_SIZE, MOV_CONSTANT_ROFFSET);
+        let val = extract_bits(regs.ir, B8_CONSTANT_SIZE, B8_CONSTANT_ROFFSET);
         regs.gp[reg_dst] = val as i16;
     }
 
@@ -143,21 +149,21 @@ pub mod execute {
     pub fn add_im(regs: &mut Registers) -> () {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
-        let val = extract_bits(regs.ir, MATH_CONSTANT_SIZE, MATH_CONSTANT_ROFFSET);
+        let val = extract_bits(regs.ir, B5_CONSTANT_SIZE, B5_CONSTANT_ROFFSET);
 
         match regs.gp[reg_a].checked_add(val as i16) {
             Some(v) => {
                 regs.gp[reg_dst] = v;
-                regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+                regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
                 match v {
-                    0          => regs.change_flags(vec![Flags::ZR(true),
-                                                         Flags::NG(false)]),
-                    v if v < 0 => regs.change_flags(vec![Flags::ZR(false),
-                                                         Flags::NG(true)]),
+                    0          => regs.change_flags(vec![(Flags::ZR, true),
+                                                         (Flags::NG, false)]),
+                    v if v < 0 => regs.change_flags(vec![(Flags::ZR, false),
+                                                         (Flags::NG, true)]),
                     _          => (),
                 }
             }
-            None => regs.change_flags(vec![Flags::OV(true), Flags::CA(true)])
+            None => regs.change_flags(vec![(Flags::OV, true), (Flags::CA, true)])
         }
     }
 
@@ -170,16 +176,16 @@ pub mod execute {
         match regs.gp[reg_a].checked_add(regs.gp[reg_b]) {
             Some(v) => {
                 regs.gp[reg_dst] = v;
-                regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+                regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
                 match v {
-                    0          => regs.change_flags(vec![Flags::ZR(true),
-                                                         Flags::NG(false)]),
-                    v if v < 0 => regs.change_flags(vec![Flags::ZR(false),
-                                                         Flags::NG(true)]),
+                    0          => regs.change_flags(vec![(Flags::ZR, true),
+                                                         (Flags::NG, false)]),
+                    v if v < 0 => regs.change_flags(vec![(Flags::ZR, false),
+                                                         (Flags::NG, true)]),
                     _          => (),
                 }
             }
-            None => regs.change_flags(vec![Flags::OV(true), Flags::CA(true)])
+            None => regs.change_flags(vec![(Flags::OV, true), (Flags::CA, true)])
         }
     }
 
@@ -187,25 +193,25 @@ pub mod execute {
     pub fn sub_im(regs: &mut Registers) -> () {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
-        let val = extract_bits(regs.ir, MATH_CONSTANT_SIZE, MATH_CONSTANT_ROFFSET);
+        let val = extract_bits(regs.ir, B5_CONSTANT_SIZE, B5_CONSTANT_ROFFSET);
 
         match regs.gp[reg_a].checked_sub(val as i16) {
             Some(v) => {
                 regs.gp[reg_dst] = v;
-                regs.change_flags(vec![Flags::OV(false)]);
+                regs.change_flags(vec![(Flags::OV, false)]);
                 match v {
-                    v if v == 0 => regs.change_flags(vec![Flags::CA(true),
-                                                          Flags::ZR(true),
-                                                          Flags::NG(false)]),
-                    v if v > 0  => regs.change_flags(vec![Flags::CA(true),
-                                                          Flags::ZR(false),
-                                                          Flags::NG(false)]),
-                    _           => regs.change_flags(vec![Flags::CA(false),
-                                                          Flags::ZR(false),
-                                                          Flags::NG(true)]),
+                    v if v == 0 => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, true),
+                                                          (Flags::NG, false)]),
+                    v if v > 0  => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, false)]),
+                    _           => regs.change_flags(vec![(Flags::CA, false),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, true)]),
                 }
             }
-            None => regs.change_flags(vec![Flags::OV(true)])
+            None => regs.change_flags(vec![(Flags::OV, true)])
         }
     }
 
@@ -218,20 +224,20 @@ pub mod execute {
         match regs.gp[reg_a].checked_sub(regs.gp[reg_b]) {
             Some(v) => {
                 regs.gp[reg_dst] = v;
-                regs.change_flags(vec![Flags::OV(false)]);
+                regs.change_flags(vec![(Flags::OV, false)]);
                 match v {
-                    v if v == 0 => regs.change_flags(vec![Flags::CA(true),
-                                                          Flags::ZR(true),
-                                                          Flags::NG(false)]),
-                    v if v > 0  => regs.change_flags(vec![Flags::CA(true),
-                                                          Flags::ZR(false),
-                                                          Flags::NG(false)]),
-                    _           => regs.change_flags(vec![Flags::CA(false),
-                                                          Flags::ZR(false),
-                                                          Flags::NG(true)]),
+                    v if v == 0 => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, true),
+                                                          (Flags::NG, false)]),
+                    v if v > 0  => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, false)]),
+                    _           => regs.change_flags(vec![(Flags::CA, false),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, true)]),
                 }
             }
-            None => regs.change_flags(vec![Flags::OV(true)])
+            None => regs.change_flags(vec![(Flags::OV, true)])
         }
     }
     
@@ -239,34 +245,34 @@ pub mod execute {
     pub fn shift_l(regs: &mut Registers) -> () {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_src = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
-        let val = extract_bits(regs.ir, SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET);
+        let val = extract_bits(regs.ir, B4_CONSTANT_SIZE, B4_CONSTANT_ROFFSET);
         
         regs.gp[reg_dst] = regs.gp[reg_src] << (val as u16);
         if regs.gp[reg_dst] == 0 {
-            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+            regs.change_flags(vec![(Flags::ZR, true), (Flags::NG, false)]);
         }
         else if regs.gp[reg_dst] < 0 {
-            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+            regs.change_flags(vec![(Flags::ZR, false), (Flags::NG, true)]);
         }
 
-        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+        regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
     }
 
     // Shifts constant bits left from reg_src and stores result in reg_dst
     pub fn shift_r(regs: &mut Registers) -> () {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_src = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
-        let val = extract_bits(regs.ir, SHFT_CONSTANT_SIZE, SHFT_CONSTANT_ROFFSET);
+        let val = extract_bits(regs.ir, B4_CONSTANT_SIZE, B4_CONSTANT_ROFFSET);
         
         regs.gp[reg_dst] = regs.gp[reg_src] >> (val as u16);
         if regs.gp[reg_dst] == 0 {
-            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+            regs.change_flags(vec![(Flags::ZR, true), (Flags::NG, false)]);
         }
         else if regs.gp[reg_dst] < 0 {
-            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+            regs.change_flags(vec![(Flags::ZR, false), (Flags::NG, true)]);
         }
 
-        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+        regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
     }
 
     // Bitwise ANDs reg_A and reg_B and stores the result in reg_dst
@@ -277,13 +283,13 @@ pub mod execute {
 
         regs.gp[reg_dst] = regs.gp[reg_a] & regs.gp[reg_b];
         if regs.gp[reg_dst] == 0 {
-            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+            regs.change_flags(vec![(Flags::ZR, true), (Flags::NG, false)]);
         }
         else if regs.gp[reg_dst] < 0 {
-            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+            regs.change_flags(vec![(Flags::ZR, false), (Flags::NG, true)]);
         }
 
-        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+        regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
     }
 
     // Bitwise ORs reg_A and reg_B and stores the result in reg_dst
@@ -294,13 +300,13 @@ pub mod execute {
 
         regs.gp[reg_dst] = regs.gp[reg_a] | regs.gp[reg_b];
         if regs.gp[reg_dst] == 0 {
-            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+            regs.change_flags(vec![(Flags::ZR, true), (Flags::NG, false)]);
         }
         else if regs.gp[reg_dst] < 0 {
-            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+            regs.change_flags(vec![(Flags::ZR, false), (Flags::NG, true)]);
         }
 
-        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+        regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
     }
 
     // Bitwise inverts reg_src and stores the result in reg_dst
@@ -310,41 +316,19 @@ pub mod execute {
 
         regs.gp[reg_dst] = !regs.gp[reg_src];
         if regs.gp[reg_dst] == 0 {
-            regs.change_flags(vec![Flags::ZR(true), Flags::NG(false)]);
+            regs.change_flags(vec![(Flags::ZR, true), (Flags::NG, false)]);
         }
         else if regs.gp[reg_dst] < 0 {
-            regs.change_flags(vec![Flags::ZR(false), Flags::NG(true)]);
+            regs.change_flags(vec![(Flags::ZR, false), (Flags::NG, true)]);
         }
 
-        regs.change_flags(vec![Flags::OV(false), Flags::CA(false)]);
+        regs.change_flags(vec![(Flags::OV, false), (Flags::CA, false)]);
     }
 
     // Branch to address in label
-    pub fn bal(regs: &mut Registers) -> () {
+    pub fn jmp(regs: &mut Registers) -> () {
         let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
         regs.pc = label as u16;
-    }
-
-    // Branch if zero 
-    pub fn bzr(regs: &mut Registers) -> () {
-        // false is passed as constructor parameter to Flags::ZR
-        // just to complete the type. But value of actual flag is not mutated
-        // and just read.
-        if regs.read_flag(Flags::ZR(false)) {
-            let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
-            regs.pc = label as u16;
-        }
-    }
-
-    // Branch if negative 
-    pub fn bng(regs: &mut Registers) -> () {
-        // false is passed as constructor parameter to Flags::ZR
-        // just to complete the type. But value of actual flag is not mutated
-        // and just read.
-        if regs.read_flag(Flags::NG(false)) {
-            let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
-            regs.pc = label as u16;
-        }
     }
 
     // Branch with link
@@ -360,6 +344,98 @@ pub mod execute {
     pub fn ret(regs: &mut Registers) -> () {
         // Jumps to return address saved in link register
         regs.pc = regs.gp[LNR_PTR] as u16;
+    }
+
+    // Compare immediate
+    pub fn cmp_im(regs: &mut Registers) -> () {
+        let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
+        let val = extract_bits(regs.ir, B8_CONSTANT_SIZE, B8_CONSTANT_ROFFSET);
+        
+        match regs.gp[reg_a].checked_sub(val as i16) {
+            Some(v) => {
+                regs.change_flags(vec![(Flags::OV, false)]);
+                match v {
+                    v if v == 0 => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, true),
+                                                          (Flags::NG, false)]),
+                    v if v > 0  => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, false)]),
+                    _           => regs.change_flags(vec![(Flags::CA, false),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, true)]),
+                }
+            }
+            None => regs.change_flags(vec![(Flags::OV, true)])
+        }
+    }
+
+    // Compare with registers
+    pub fn cmp_rg(regs: &mut Registers) -> () {
+        let reg_a = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
+        let reg_b = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET);
+        
+        match regs.gp[reg_a].checked_sub(regs.gp[reg_b] as i16) {
+            Some(v) => {
+                regs.change_flags(vec![(Flags::OV, false)]);
+                match v {
+                    v if v == 0 => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, true),
+                                                          (Flags::NG, false)]),
+                    v if v > 0  => regs.change_flags(vec![(Flags::CA, true),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, false)]),
+                    _           => regs.change_flags(vec![(Flags::CA, false),
+                                                          (Flags::ZR, false),
+                                                          (Flags::NG, true)]),
+                }
+            }
+            None => regs.change_flags(vec![(Flags::OV, true)])
+        }
+    }
+
+    // Branch if equal
+    pub fn beq(regs: &mut Registers) -> () {
+        branch_on_condition(regs.read_flag(Flags::ZR), regs);
+    }
+
+    // Branch if not equal
+    pub fn bne(regs: &mut Registers) -> () {
+        branch_on_condition(!regs.read_flag(Flags::ZR), regs);
+    }
+
+    // Branch if greater than (signed)
+    pub fn bgt(regs: &mut Registers) -> () {
+        branch_on_condition(regs.read_flag(Flags::NG) == 
+                            regs.read_flag(Flags::OV),
+                            regs);
+    }
+
+    // Branch if greater than (unsigned)
+    pub fn bgtu(regs: &mut Registers) -> () {
+        branch_on_condition(regs.read_flag(Flags::CA) && 
+                            !regs.read_flag(Flags::ZR),
+                            regs);
+    }
+
+    // Branch if less than (signed)
+    pub fn blt(regs: &mut Registers) -> () {
+        branch_on_condition(regs.read_flag(Flags::NG) != 
+                            regs.read_flag(Flags::OV),
+                            regs);
+    }
+
+    // Branch if less than (unsigned)
+    pub fn bltu(regs: &mut Registers) -> () {
+        branch_on_condition(!regs.read_flag(Flags::CA),
+                            regs);
+    }
+
+    fn branch_on_condition(cond: bool, regs: &mut Registers) -> () {
+        if cond {
+            let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
+            regs.pc = label as u16;
+        }
     }
 }
 

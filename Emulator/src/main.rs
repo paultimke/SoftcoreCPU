@@ -15,6 +15,12 @@ fn main() {
 
     // Load the bytes of the binary file into a vector (Main memory)
     load_program("file.bin", &mut mem);
+
+    // TODO: - Dump all register values at the end of the program (when halted)
+    //       - Add feature DEBUG to step through code on each iteration of the loop
+    //         by pressing some key (maybe space to continue)
+    //       - When on DEBUG, add feature to see register values when pressing
+    //         some key (maybe r)
  
     // Fetch-Decode-Execute Cycle
     loop {
@@ -43,11 +49,17 @@ fn main() {
             Some(Opcode::And)    => execute::and(&mut regs),
             Some(Opcode::Or)     => execute::or(&mut regs),
             Some(Opcode::Not)    => execute::not(&mut regs),
-            Some(Opcode::Bal)    => {execute::bal(&mut regs); continue},
-            Some(Opcode::Bzr)    => {execute::bzr(&mut regs); continue},
-            Some(Opcode::Bng)    => {execute::bng(&mut regs); continue},
+            Some(Opcode::Jmp)    => {execute::jmp(&mut regs); continue},
             Some(Opcode::Bln)    => {execute::bln(&mut regs); continue},
             Some(Opcode::Ret)    => {execute::ret(&mut regs); continue},
+            Some(Opcode::CmpIm)  => execute::cmp_im(&mut regs),
+            Some(Opcode::CmpRg)  => execute::cmp_rg(&mut regs),
+            Some(Opcode::Beq)    => {execute::beq(&mut regs); continue},
+            Some(Opcode::Bne)    => {execute::bne(&mut regs); continue},
+            Some(Opcode::Bgt)    => {execute::bgt(&mut regs); continue},
+            Some(Opcode::Bgtu)   => {execute::bgtu(&mut regs); continue},
+            Some(Opcode::Blt)    => {execute::blt(&mut regs); continue},
+            Some(Opcode::Bltu)   => {execute::bltu(&mut regs); continue},
             Some(Opcode::Halt)   => {println!("Program Halted Normally");
                                      break },
             _ => panic!("Unrecognized Opcode"),
