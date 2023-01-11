@@ -4,7 +4,7 @@ use num_derive::FromPrimitive;
 // Type Declarations
 type Memory = Vec<u16>;
 
-// Opcode numerical translations (From 0x00 to 0x16)
+// Opcode numerical translations (From 0x00 to 0x1C)
 #[derive(FromPrimitive)]
 pub enum Opcode {
     MovIm,  // MOV immediate (MOV {reg_dst} {constant})
@@ -435,6 +435,9 @@ pub mod execute {
         if cond {
             let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET);
             regs.pc = label as u16;
+        }
+        else {
+            regs.pc += 1;
         }
     }
 }
