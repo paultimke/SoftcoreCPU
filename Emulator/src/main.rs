@@ -14,9 +14,10 @@ fn main() {
     let mut mem = Vec::new();         // Main memory (16-bit words)
 
     // Load the bytes of the binary file into a vector (Main memory)
-    load_program("file.bin", &mut mem);
+    load_program("test/file2.bin", &mut mem);
 
-    // TODO: - Dump all register values at the end of the program (when halted)
+    // TODO: - Pass input binary file as command line argument instead of hardcoded
+    //       - Dump all register values at the end of the program (when halted)
     //       - Add feature DEBUG to step through code on each iteration of the loop
     //         by pressing some key (maybe space to continue)
     //       - When on DEBUG, add feature to see register values when pressing
