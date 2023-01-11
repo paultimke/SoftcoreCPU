@@ -36,14 +36,14 @@ impl Registers {
         for f in flags {
 
             match f {
-                (Flags::NG, false) => self.flags |= 1 << (Flags::NG as u8),
-                (Flags::NG, true)  => self.flags &= !(1 << (Flags::NG as u8)),
-                (Flags::ZR, false) => self.flags |= 1 << (Flags::ZR as u8),
-                (Flags::ZR, true)  => self.flags &= !(1 << (Flags::ZR as u8)),
-                (Flags::CA, false) => self.flags |= 1 << (Flags::CA as u8),
-                (Flags::CA, true)  => self.flags &= !(1 << (Flags::CA as u8)),
-                (Flags::OV, false) => self.flags |= 1 << (Flags::OV as u8),
-                (Flags::OV, true)  => self.flags &= !(1 << (Flags::OV as u8)),
+                (Flags::NG, true)  => self.flags |= 1 << (Flags::NG as u8),
+                (Flags::NG, false) => self.flags &= !(1 << (Flags::NG as u8)),
+                (Flags::ZR, true)  => self.flags |= 1 << (Flags::ZR as u8),
+                (Flags::ZR, false) => self.flags &= !(1 << (Flags::ZR as u8)),
+                (Flags::CA, true)  => self.flags |= 1 << (Flags::CA as u8),
+                (Flags::CA, false) => self.flags &= !(1 << (Flags::CA as u8)),
+                (Flags::OV, true)  => self.flags |= 1 << (Flags::OV as u8),
+                (Flags::OV, false) => self.flags &= !(1 << (Flags::OV as u8)),
             }
         }
     }
@@ -54,13 +54,13 @@ impl Registers {
         // Finally compare to 1 to either return true (if 1) or false (if 0)
         match flag {
             Flags::NG => 
-                (self.flags & !(1<<(Flags::NG as u8))) >> (Flags::NG as u8) == 1,
+                (self.flags & (1<<(Flags::NG as u8))) >> (Flags::NG as u8) == 1,
             Flags::ZR => 
-                (self.flags & !(1<<(Flags::ZR as u8))) >> (Flags::ZR as u8) == 1,
+                (self.flags & (1<<(Flags::ZR as u8))) >> (Flags::ZR as u8) == 1,
             Flags::CA =>
-                (self.flags & !(1<<(Flags::CA as u8))) >> (Flags::CA as u8) == 1,
+                (self.flags & (1<<(Flags::CA as u8))) >> (Flags::CA as u8) == 1,
             Flags::OV =>
-                (self.flags & !(1<<(Flags::OV as u8))) >> (Flags::OV as u8) == 1,
+                (self.flags & (1<<(Flags::OV as u8))) >> (Flags::OV as u8) == 1,
         }
     }
 }
