@@ -35,7 +35,7 @@ fn main() {
         match FromPrimitive::from_u8(opcode) {
             Some(Opcode::MovIm)  => execute::mov_im(&mut regs),
             Some(Opcode::MovRg)  => execute::mov_rg(&mut regs),
-            Some(Opcode::Load)   => execute::load(&mut regs, &mem),
+            Some(Opcode::Load)   => execute::load(&mut regs),
             Some(Opcode::LoadRg) => execute::load_rg(&mut regs, &mem),
             Some(Opcode::Store)  => execute::store(&regs, &mut mem),
             Some(Opcode::StrRg)  => execute::store_rg(&regs, &mut mem),

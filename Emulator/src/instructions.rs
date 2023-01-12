@@ -88,7 +88,7 @@ pub mod execute {
     }
 
     // Loads contents memory address label into Memory Buffer Register
-    pub fn load(regs: &mut Registers, mem: &Memory) -> () {
+    pub fn load(regs: &mut Registers) -> () {
         let label = extract_bits(regs.ir, MEM_LABEL_SIZE, MEM_LABEL_ROFFSET); 
         regs.gp[MBR_PTR] = label as i16;
     }
