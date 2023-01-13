@@ -278,10 +278,10 @@ pub fn error_handler (e: LineError, line_number: usize) -> () {
             panic!("{}Can not declare multiple labels with the same name\n\n", header)
         }
         LineError::OnlyDataSection => {
-            ()
+            panic!("Can not assemble program with only a data section\n");
         }
         LineError::NoSectionDecl => {
-            ()
+            panic!("Need to declare at least a Code section to assemble");
         }
         LineError::WrongSection(msg) => {
             panic!("{}Did not recognize '{}'. Sections may only be {} or {}\n\n", 
