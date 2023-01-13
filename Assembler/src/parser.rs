@@ -3,6 +3,8 @@ use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
 use colored::Colorize;
 
+use crate::encoder;
+
 // Struct containig symbol table (labels) and two tuples
 // describing the range of lines in the assembly source
 // file that make up the code section and data section
@@ -35,11 +37,12 @@ enum LineContent {
     NonRelevant
 }
 
-enum LineError {
+pub enum LineError {
     LabelMultiple,
     OnlyDataSection,
     NoSectionDecl,
     WrongSection(String),
+    WrongArgs(String),
     LabelWhitespace(String),
     Unrecognized(String)
 }
@@ -110,47 +113,79 @@ pub fn parse_symbols(file_path: &str) -> Symbols {
         line_idx += 1;
     }
 
-    // Casos posibles
-    /*
-    1.- Code Section First:
-        code(start, mid) data(mid, None) where start < mid && mid > 0
-    2.- Data Section First
-        code(mid, None) data(start, mid) where mid > 0 && start < mid
-    3.- Code Section, No Data Section
-        code(start, None) data(None, None)  where start >= 0
-    4.- Data Section, No Code Section
-        code(None, None) data(start, None) where start >= 0
-    5.- No Sections at all
-        code(None, None) data(None, None)
     match (symbols.code_section, symbols.data_section) {
+    ((Some(_), Some(x)), (Some(y), None)) if x == y => {
+        // Code Section was declared first
+        symbols.data_section.1 = Some(line_idx);
+    },
+    ((Some(x), None), (Some(_), Some(y))) if x == y => {
+        // Data section was declared first
+        symbols.code_section.1 = Some(line_idx);
+    },
+    ((Some(_), None), (None, None)) => {
+        // Only Code section was declared
+        symbols.code_section.1 = Some(line_idx);
+    },
+    ((None, None), (Some(_), None)) => {
+        // Only Data section was declared
+        error_handler(LineError::OnlyDataSection, 0);
+    },
+    ((None, None), (None, None)) => {
+        // No sections at all were declared
+        error_handler(LineError::NoSectionDecl, 0)
     }
-     */
-
-     match (symbols.code_section, symbols.data_section) {
-        ((Some(_), Some(x)), (Some(y), None)) if x == y => {
-            // Code Section was declared first
-            symbols.data_section.1 = Some(line_idx);
-        },
-        ((Some(x), None), (Some(_), Some(y))) if x == y => {
-            // Data section was declared first
-            symbols.code_section.1 = Some(line_idx);
-        },
-        ((Some(_), None), (None, None)) => {
-            // Only Code section was declared
-            symbols.code_section.1 = Some(line_idx);
-        },
-        ((None, None), (Some(_), None)) => {
-            // Only Data section was declared
-            error_handler(LineError::OnlyDataSection, 0);
-        },
-        ((None, None), (None, None)) => {
-            // No sections at all were declared
-            error_handler(LineError::NoSectionDecl, 0)
-        }
-        _ => () // Unreachable
-     }
+    _ => () // Unreachable
+    }
 
     symbols
+}
+
+pub fn assemble_program(file: String, symbols: Symbols) -> () {
+    use super::encoder::MNEMONICS;
+
+    let lines = {
+        let file = File::open(file).expect("Could not open file");
+        BufReader::new(file).lines()
+    };
+
+    let code_start = symbols.code_section.0.unwrap();
+    let code_end = symbols.code_section.1.unwrap();
+    let data_start = symbols.data_section.0.unwrap();
+    let data_end = symbols.data_section.1.unwrap();
+
+    // Read entire file
+    for (idx, line) in lines.enumerate() {
+        let line = line.unwrap();
+        let mut bytes: [u8; 2];
+
+        // Assemble Code Section
+        if idx > code_start && idx < code_end {
+            match parse_line(&line) {
+                LineContent::Instruction(m, args) => {
+                    // Check if Mnemonic exists. If not, throw error
+                    match MNEMONICS.get(m.as_str()) {
+                        // Ya en encoder me encargo de parsear mejor los argumentos
+                        Some(func) => bytes = func(args, idx),
+                        None => error_handler(LineError::Unrecognized(m), idx)
+                    }
+                }
+                _ => () // Only care if line is an instruction
+            }
+
+            // Aqui llamar una function para escribir al archivo
+            // write_output_file(out_file, bytes);
+        }
+
+        // Assemble Data Section
+        else if idx > data_start && idx < data_end {
+
+        }
+
+        // Unknown
+        else {
+
+        }
+    }
 }
 
 
@@ -234,7 +269,7 @@ fn parse_line(line: &String) -> LineContent {
 
 // Error Handler: Takes a LineError enum and panics while displaying
 // a corresponding message to the screen
-fn error_handler (e: LineError, line_number: usize) -> () {
+pub fn error_handler (e: LineError, line_number: usize) -> () {
     let header = format!("\n{}\n{}: {}\n", "Syntax Error".red(), 
                                            "Line Number".red(),
                                             line_number + 1);
@@ -251,6 +286,9 @@ fn error_handler (e: LineError, line_number: usize) -> () {
         LineError::WrongSection(msg) => {
             panic!("{}Did not recognize '{}'. Sections may only be {} or {}\n\n", 
                     header, msg.bold(), "code".bold(), "data".bold());
+        }
+        LineError::WrongArgs(msg) => {
+            panic!("{}{}", header, msg);
         }
         LineError::LabelWhitespace(msg) => {
             panic!("{}Label name must be alone in a line and \
@@ -270,20 +308,34 @@ mod tests {
     use super::*;
 
     #[test]
-    // Tests only for labels and nothing else
-    fn labels() {
-        // Test file 1
+    // Tests only for labels and nothing else [Test File 1]
+    fn labels_file1() {
         let compare_symbols = Symbols {
             labels: HashMap::from(
                 [("start".to_string(), 0u16), 
-                ("loop".to_string(), 1u16), 
-                ("end_loop".to_string(), 5u16),
-                ("string".to_string(), 7u16),
-                ("arr".to_string(), 8u16)]
+                ("loop".to_string(), 4u16), 
+                ("end_loop".to_string(), 11u16),
+                ("arr".to_string(), 13u16)]
             ),
             code_section: (None, None),
             data_section: (None, None)
         };
         assert_eq!(compare_symbols.labels, parse_symbols("test/file1.s").labels);
     }
+
+    #[test]
+    // Tests only for labels and nothing else [Test File 2]
+    fn labels_file2() {
+        let compare_symbols = Symbols {
+            labels: HashMap::from(
+                [("sum2nums".to_string(), 7u16), 
+                ("sub2nums".to_string(), 9u16)]
+            ),
+            code_section: (None, None),
+            data_section: (None, None)
+        };
+        assert_eq!(compare_symbols.labels, parse_symbols("test/file2.s").labels);
+    }
+
+    // TODO: Make tests for code and data section ranges
 }
