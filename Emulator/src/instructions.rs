@@ -99,7 +99,7 @@ pub mod execute {
         let reg_dst = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_adr = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET); 
         let ofst = extract_bits(regs.ir, MEM_OFFSET_SIZE, MEM_OFFSET_ROFFSET);
-        regs.gp[reg_dst] = mem[(reg_adr + ofst)] as i16;
+        regs.gp[reg_dst] = mem[((regs.gp[reg_adr] as usize) + ofst)] as i16;
     }
 
     // Stores contents from Memory Buffer Register into memory at address label
@@ -114,7 +114,7 @@ pub mod execute {
         let reg_src = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS0_ROFFSET);
         let reg_adr = extract_bits(regs.ir, REG_ADDR_SIZE, REG_POS1_ROFFSET); 
         let ofst = extract_bits(regs.ir, MEM_OFFSET_SIZE, MEM_OFFSET_ROFFSET);
-        mem[(reg_adr + ofst)] = regs.gp[reg_src] as u16;
+        mem[(regs.gp[reg_adr] as usize) + ofst] = regs.gp[reg_src] as u16;
     }
 
     // Push up to three different registers onto the stack
