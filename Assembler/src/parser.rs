@@ -1,9 +1,9 @@
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::collections::HashMap;
-use colored::Colorize;
+use crate::err_handler::*;
 
-use crate::encoder;
+// ********************* VARIABLES AND TYPE DEFINITIONS ******************** //
 
 // Struct containig symbol table (labels) and two tuples
 // describing the range of lines in the assembly source
@@ -11,8 +11,8 @@ use crate::encoder;
 #[derive(PartialEq, Debug)]
 pub struct Symbols {
     pub labels: HashMap<String, u16>,
-    pub code_section: (Option<usize>, Option<usize>), //(Option<usize>, Option<usize>)
-    pub data_section: (Option<usize>, Option<usize>)  //(Option<usize>, Option<usize>)
+    pub code_section: (Option<usize>, Option<usize>),
+    pub data_section: (Option<usize>, Option<usize>)  
 }
 
 impl Symbols {
@@ -37,31 +37,20 @@ enum LineContent {
     NonRelevant
 }
 
-pub enum LineError {
-    LabelMultiple,
-    OnlyDataSection,
-    NoSectionDecl,
-    WrongSection(String),
-    WrongArgs(String),
-    LabelWhitespace(String),
-    Unrecognized(String)
-}
-
 enum Section {
     Code,
     Data
 }
 
-// TODO: Fix issue where section ranges are wrong
-//       if both sections aren't declared
+// *************************** PARSING FUNCTIONS *************************** //
 
-// First Pass of Assembly Process: Getting all label names and 
+// FIRST PASS OF ASSEMBLY PROCESS: Getting all label names and 
 // storing them alongside their address in a symbol table.
 // Returns a Symbol struct containing the symbol table (labels),
 // And the ranges for start and end line of code and data sections
-pub fn parse_symbols(file_path: &str) -> Symbols {
+pub fn parse_symbols(file: &str) -> Symbols {
     let reader = {
-        let file = File::open(file_path).expect("Could not open file");
+        let file = File::open(file).expect("Could not open file");
         BufReader::new(file)
     };
     let mut symbols = Symbols::new();
@@ -72,12 +61,14 @@ pub fn parse_symbols(file_path: &str) -> Symbols {
         let line = line.unwrap();
 
         match parse_line(&line) {
+            // LABELS: Append label to symbol table
             LineContent::Label(k) => {
                 match symbols.labels.insert(k, address) {
                     Some(_) => error_handler(LineError::LabelMultiple, line_idx),
                     _       => ()
                 }
             },
+            // SECTION: Determine line ranges for each program section
             LineContent::Section(s) => match s {
                 Section::Code => {
                     if symbols.code_section == (None, None) &&
@@ -104,10 +95,14 @@ pub fn parse_symbols(file_path: &str) -> Symbols {
                     } 
                 }
             },
-            LineContent::Data(d) => address += d.len() as u16,   // Increment by size of data
-            LineContent::Instruction(_,_) => address += 1,       // Increment by 1
+            // DATA: Increment address by size of data
+            LineContent::Data(d) => address += d.len() as u16,   
+            // INSTRUCTIONS: Increment address by 1
+            LineContent::Instruction(_,_) => address += 1,  
+            // ERRORS: Calls error handler on corresponding error     
             LineContent::Error(e) => error_handler(e, line_idx),
-            LineContent::NonRelevant => ()                       // Empty line or comment
+            // Empty lines or comments not relevant to do any action
+            LineContent::NonRelevant => ()                       
         }
 
         line_idx += 1;
@@ -140,7 +135,10 @@ pub fn parse_symbols(file_path: &str) -> Symbols {
     symbols
 }
 
-pub fn assemble_program(file: String, symbols: Symbols) -> () {
+// SECOND PASS OF ASSEMBLY PROCESS: Traverses each section (code and data)
+// line by line. Instructions and data are decoded and written to a binary
+// output file
+pub fn assemble_program(file: &str, symbols: Symbols) -> () {
     use super::encoder::MNEMONICS;
 
     let lines = {
@@ -164,8 +162,7 @@ pub fn assemble_program(file: String, symbols: Symbols) -> () {
                 LineContent::Instruction(m, args) => {
                     // Check if Mnemonic exists. If not, throw error
                     match MNEMONICS.get(m.as_str()) {
-                        // Ya en encoder me encargo de parsear mejor los argumentos
-                        Some(func) => bytes = func(args, idx),
+                        Some(func) => bytes = func(args, &symbols, idx),
                         None => error_handler(LineError::Unrecognized(m), idx)
                     }
                 }
@@ -209,7 +206,8 @@ fn parse_line(line: &String) -> LineContent {
             return LineContent::Section(Section::Data);
         }
         else {
-            return LineContent::Error(LineError::WrongSection(line.trim().to_string()));
+            return LineContent::Error(LineError::WrongSection(line.trim()
+                                                                  .to_string()));
         }
     }
     // Line is declaring Data
@@ -244,17 +242,6 @@ fn parse_line(line: &String) -> LineContent {
     }
     // Line is either an instruction or a syntax error
     else  {
-        // TO DETERMINE IF IS INSTRUCTION:
-        // 1. Split into tokens
-        // 2. Check if first token is alphanumeric
-        // 3. Check if length of first token is in range 2..4 inclusive
-        // 4. Convert token to all lowercase
-        // Then when returned, this must be done in parent function
-        // 1. Check if token exists in Mnemonics Hash Map
-        // 2. If exists, execute the returned encoder function
-        // 3. Go on to next line
-        // Else it is not an instruction
-
         let mut instr: Vec<_> = line.split(" ").map(|s| s.to_string()).collect();
         if instr.len() >= 1 && instr[0].is_ascii() {
             let mnemonic = instr.remove(0).to_lowercase().to_string();
@@ -267,40 +254,6 @@ fn parse_line(line: &String) -> LineContent {
     }
 }
 
-// Error Handler: Takes a LineError enum and panics while displaying
-// a corresponding message to the screen
-pub fn error_handler (e: LineError, line_number: usize) -> () {
-    let header = format!("\n{}\n{}: {}\n", "Syntax Error".red(), 
-                                           "Line Number".red(),
-                                            line_number + 1);
-    match e {
-        LineError::LabelMultiple => {
-            panic!("{}Can not declare multiple labels with the same name\n\n", header)
-        }
-        LineError::OnlyDataSection => {
-            panic!("Can not assemble program with only a data section\n");
-        }
-        LineError::NoSectionDecl => {
-            panic!("Need to declare at least a Code section to assemble");
-        }
-        LineError::WrongSection(msg) => {
-            panic!("{}Did not recognize '{}'. Sections may only be {} or {}\n\n", 
-                    header, msg.bold(), "code".bold(), "data".bold());
-        }
-        LineError::WrongArgs(msg) => {
-            panic!("{}{}", header, msg);
-        }
-        LineError::LabelWhitespace(msg) => {
-            panic!("{}Label name must be alone in a line and \
-                    without any whitespaces in between:\n'{}'\n\
-                    Please do not use '{}' if you did not intend to \
-                    declare a label\n\n", header, msg.bold(), ":".red().bold())
-        }
-        LineError::Unrecognized(msg) => {
-            panic!("{}Did not recognize '{}'\n\n", header, msg.bold());
-        }
-    }
-}
 
 // TESTING MODULE
 #[cfg(test)]
