@@ -13,7 +13,7 @@ use crate::parser::{error_handler, LineError};
 enum InstructionType {
     T1(u8, u8, u8), 
     T2(u8, u8, u8, u8), 
-    T3(u8, u8), 
+    T3(u8, u16), 
     T4(u8, u8, u8, u8), // Fifth field unused
     T5(u8, u8, u8, u8)  // Fifth field unused
 }
@@ -54,27 +54,42 @@ pub static REGISTERS: Lazy<HashMap<&str, u8>> = Lazy::new(|| {
 // Encodes the passed in values by their InstructionType as specified
 // by the reference manual.
 fn encode(instr: InstructionType) -> [u8; 2] {
+    let opcode_shift = 11;
     match instr {
         InstructionType::T1(op,r,c) => {
-            let opcode_shift = 11;
             let reg_pos0_shift = 8;
-            let imm_shift = 0;
-            // Do the sift operations
+            [(op << opcode_shift) | (r << reg_pos0_shift), c]
         }
         InstructionType::T2(op,rp0,rp1,f1) => {
-
+            let reg_pos0_shift = 8;
+            let reg_pos1_shift = 5;
+            let msb = (op << opcode_shift) | (rp0 << reg_pos0_shift);
+            let lsb = (rp1 << reg_pos1_shift) | f1;
+            [msb, lsb]
         }
         InstructionType::T3(op,f2) => {
-
+            let instr16bit: u16 = ((op << opcode_shift) as u16) | f2;
+            let msb = (instr16bit >> 8) as u8;
+            let lsb = instr16bit as u8;
+            [msb, lsb]
         }
         InstructionType::T4(op,rp0,rp1,rp2) => {
-
+            let reg_pos0_shift = 8;
+            let reg_pos1_shift = 5;
+            let reg_pos2_shift = 3;
+            let msb = (op << opcode_shift) | (rp0 << reg_pos0_shift);
+            let lsb = (rp1 << reg_pos1_shift) | (rp2 << reg_pos2_shift);
+            [msb, lsb]
         }
         InstructionType::T5(op,rp0,rp1,c) => {
-            
+            let reg_pos0_shift = 8;
+            let reg_pos1_shift = 5;
+            let imm_shift = 1;
+            let msb = (op << opcode_shift) | (rp0 << reg_pos0_shift);
+            let lsb = (rp1 << reg_pos1_shift) | (c << imm_shift);
+            [msb, lsb]
         }
     }
-    [1u8, 2u8]
 }
 
 fn get_valid_reg(r: &str, curr_line_num: usize) -> u8 {
