@@ -1,5 +1,5 @@
-use std::fs::File;
-use std::io::{BufRead, BufReader};
+use std::fs::{File};
+use std::io::{BufRead, BufReader, BufWriter, Write};
 use std::collections::HashMap;
 use crate::err_handler::*;
 
@@ -138,8 +138,13 @@ pub fn parse_symbols(file: &str) -> Symbols {
 // SECOND PASS OF ASSEMBLY PROCESS: Traverses each section (code and data)
 // line by line. Instructions and data are decoded and written to a binary
 // output file
-pub fn assemble_program(file: &str, symbols: Symbols) -> () {
+pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str) -> () {
     use super::encoder::MNEMONICS;
+
+    let mut out_file = {
+        let f = File::create(out_file).expect("Could not create file");
+        BufWriter::new(f)
+    };
 
     let lines = {
         let file = File::open(file).expect("Could not open file");
@@ -154,7 +159,6 @@ pub fn assemble_program(file: &str, symbols: Symbols) -> () {
     // Read entire file
     for (idx, line) in lines.enumerate() {
         let line = line.unwrap();
-        let mut bytes: [u8; 2];
 
         // Assemble Code Section
         if idx > code_start && idx < code_end {
@@ -162,29 +166,24 @@ pub fn assemble_program(file: &str, symbols: Symbols) -> () {
                 LineContent::Instruction(m, args) => {
                     // Check if Mnemonic exists. If not, throw error
                     match MNEMONICS.get(m.as_str()) {
-                        Some(func) => bytes = func(args, &symbols, idx),
+                        Some(func) => {
+                            let [msb, lsb] = func(args, &symbols, idx);
+                            write!(out_file, "{}{}", msb, lsb)
+                            .expect("Could not write to file");
+                        }
                         None => error_handler(LineError::Unrecognized(m), idx)
                     }
                 }
                 _ => () // Only care if line is an instruction
             }
-
-            // Aqui llamar una function para escribir al archivo
-            // write_output_file(out_file, bytes);
         }
 
         // Assemble Data Section
         else if idx > data_start && idx < data_end {
 
         }
-
-        // Unknown
-        else {
-
-        }
     }
 }
-
 
 // Parse Line: Takes a single line from the file and determines
 // what kind of line content it is. On instructions, it tokenizes
@@ -258,6 +257,8 @@ fn parse_line(line: &String) -> LineContent {
 // TESTING MODULE
 #[cfg(test)]
 mod tests {
+    use std::{io::Read, fs::remove_file};
+
     use super::*;
 
     #[test]
@@ -290,5 +291,41 @@ mod tests {
         assert_eq!(compare_symbols.labels, parse_symbols("test/file2.s").labels);
     }
 
-    // TODO: Make tests for code and data section ranges
+    #[test]
+    fn assemble_test1() {
+        match compare_files("test/file1.s", "test/file1.bin") {
+            Ok(_) => (),
+            Err(_) => panic!()
+        };
+    }
+
+    fn compare_files(ref_asm_path: &str, ref_bin_path: &str) -> Result<(), ()> {
+        let result_bin_name = &format!("{}_test.bin", ref_bin_path);
+        let symbols = parse_symbols(&ref_asm_path);
+        assemble_program(&ref_asm_path, symbols, &result_bin_name);
+
+        let f_ref = File::open(ref_bin_path).expect("could not open file");
+        let f_res = File::open(result_bin_name).expect("Could not open file");
+
+        // Check if file sizes are different
+        if f_ref.metadata().unwrap().len() != f_res.metadata().unwrap().len() {
+            remove_file(result_bin_name).unwrap();
+            return Err(());
+        }
+
+        // Use buf readers since they are much faster
+        let f_ref = BufReader::new(f_ref);
+        let f_res = BufReader::new(f_res);
+
+        // Do a byte to byte comparison of the two files
+        for (b1, b2) in f_ref.bytes().zip(f_res.bytes()) {
+            if b1.unwrap() != b2.unwrap() {
+                remove_file(result_bin_name).unwrap();
+                return Err(());
+            }
+        }
+
+        remove_file(result_bin_name).unwrap();
+        return Ok(());
+    }
 }
