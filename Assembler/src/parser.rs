@@ -1,29 +1,9 @@
 use std::fs::{File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use std::collections::HashMap;
 use crate::err_handler::*;
+use crate::symbols::{Symbols, Section};
 
 // ********************* VARIABLES AND TYPE DEFINITIONS ******************** //
-
-// Struct containig symbol table (labels) and two tuples
-// describing the range of lines in the assembly source
-// file that make up the code section and data section
-#[derive(PartialEq, Debug)]
-pub struct Symbols {
-    pub labels: HashMap<String, u16>,
-    pub code_section: (Option<usize>, Option<usize>),
-    pub data_section: (Option<usize>, Option<usize>)  
-}
-
-impl Symbols {
-    pub fn new() -> Symbols {
-        Symbols {
-            labels: HashMap::new(),
-            code_section: (None, None),
-            data_section: (None, None)
-        }
-    }
-}
 
 // Line Content: Categorizes the kinds of expressions
 // that can be found in a source file. Errors and Sections
@@ -33,26 +13,18 @@ enum LineContent {
     Instruction(String, Vec<String>),
     Data(Vec<u8>),
     Section(Section),
-    Error(LineError),
     NonRelevant
 }
 
-enum Section {
-    Code,
-    Data
-}
-
-// *************************** PARSING FUNCTIONS *************************** //
+// *********************** MAIN ASSEMBLING FUNCTIONS *********************** //
 
 // FIRST PASS OF ASSEMBLY PROCESS: Getting all label names and 
 // storing them alongside their address in a symbol table.
 // Returns a Symbol struct containing the symbol table (labels),
 // And the ranges for start and end line of code and data sections
-pub fn parse_symbols(file: &str) -> Symbols {
-    let reader = {
-        let file = File::open(file).expect("Could not open file");
-        BufReader::new(file)
-    };
+pub fn parse_symbols(file: &str) -> Result<Symbols, LineError> {
+    let file = File::open(file).expect("Could not open file");
+    let reader = BufReader::new(file);
     let mut symbols = Symbols::new();
     let mut address = 0x00;
     let mut line_idx = 0;
@@ -60,85 +32,38 @@ pub fn parse_symbols(file: &str) -> Symbols {
     for line in reader.lines() {
         let line = line.unwrap();
 
-        match parse_line(&line) {
+        match parse_line(&line, line_idx)? {
             // LABELS: Append label to symbol table
             LineContent::Label(k) => {
                 match symbols.labels.insert(k, address) {
-                    Some(_) => error_handler(LineError::LabelMultiple, line_idx),
-                    _       => ()
+                    Some(_) => Err(LineError::LabelMultiple(line_idx)),
+                    _       => Ok(())
                 }
-            },
+            }
             // SECTION: Determine line ranges for each program section
-            LineContent::Section(s) => match s {
-                Section::Code => {
-                    if symbols.code_section == (None, None) &&
-                       symbols.data_section == (None, None)
-                    {
-                        // Code Section was declared first
-                        symbols.code_section.0 = Some(line_idx);
-                    } else {
-                        // Code Section was declared last
-                        symbols.code_section.0 = Some(line_idx);
-                        symbols.data_section.1 = Some(line_idx);
-                    }
-                },
-                Section::Data => {
-                    if symbols.code_section == (None, None) &&
-                       symbols.data_section == (None, None)
-                    {
-                        // Data Section was declared first
-                        symbols.data_section.0 = Some(line_idx);
-                    } else {
-                        // Code Section was declared last
-                        symbols.data_section.0 = Some(line_idx);
-                        symbols.code_section.1 = Some(line_idx);
-                    } 
-                }
-            },
+            LineContent::Section(s) => Ok(symbols.update_sections(s, line_idx)),
             // DATA: Increment address by size of data
-            LineContent::Data(d) => address += d.len() as u16,   
+            LineContent::Data(d) => Ok(address += d.len() as u16),   
             // INSTRUCTIONS: Increment address by 1
-            LineContent::Instruction(_,_) => address += 1,  
-            // ERRORS: Calls error handler on corresponding error     
-            LineContent::Error(e) => error_handler(e, line_idx),
+            LineContent::Instruction(_,_) => Ok(address += 1),  
             // Empty lines or comments not relevant to do any action
-            LineContent::NonRelevant => ()                       
-        }
-
+            LineContent::NonRelevant => Ok(()),              
+        }?;
         line_idx += 1;
     }
 
-    match (symbols.code_section, symbols.data_section) {
-    ((Some(_), Some(x)), (Some(y), None)) if x == y => {
-        // Code Section was declared first
-        symbols.data_section.1 = Some(line_idx);
-    },
-    ((Some(x), None), (Some(_), Some(y))) if x == y => {
-        // Data section was declared first
-        symbols.code_section.1 = Some(line_idx);
-    },
-    ((Some(_), None), (None, None)) => {
-        // Only Code section was declared
-        symbols.code_section.1 = Some(line_idx);
-    },
-    ((None, None), (Some(_), None)) => {
-        // Only Data section was declared
-        error_handler(LineError::OnlyDataSection, 0);
-    },
-    ((None, None), (None, None)) => {
-        // No sections at all were declared
-        error_handler(LineError::NoSectionDecl, 0)
-    }
-    _ => () // Unreachable
-    }
+    // Check if section declarations are valid and populate 
+    // upper bound of one of them
+    symbols.check_sections_valid(line_idx)?;
 
-    symbols
+    return Ok(symbols);
 }
 
 // SECOND PASS OF ASSEMBLY PROCESS: Traverses each section (code and data)
 // line by line. Instructions and data are decoded and written to a binary
 // output file
-pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str) -> () {
+pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str) 
+-> Result<(), LineError> {
     use super::encoder::MNEMONICS;
 
     let mut out_file = {
@@ -162,20 +87,21 @@ pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str) -> () {
 
         // Assemble Code Section
         if idx > code_start && idx < code_end {
-            match parse_line(&line) {
+            match parse_line(&line, idx)? {
                 LineContent::Instruction(m, args) => {
                     // Check if Mnemonic exists. If not, throw error
                     match MNEMONICS.get(m.as_str()) {
                         Some(func) => {
-                            let [msb, lsb] = func(args, &symbols, idx);
+                            let [msb, lsb] = func(args, &symbols, idx)?;
                             write!(out_file, "{}{}", msb, lsb)
-                            .expect("Could not write to file");
+                            .expect("Could not write to output file");
+                            Ok(())
                         }
-                        None => error_handler(LineError::Unrecognized(m), idx)
+                        None => Err(LineError::Unrecognized(m, idx))
                     }
                 }
-                _ => () // Only care if line is an instruction
-            }
+                _ => Ok(()) // Only care if line is an instruction
+            }?
         }
 
         // Assemble Data Section
@@ -183,82 +109,98 @@ pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str) -> () {
 
         }
     }
+
+    Ok(())
 }
 
 // Parse Line: Takes a single line from the file and determines
 // what kind of line content it is. On instructions, it tokenizes
 // the mnemonic and arguments into a (String, Vec<String>) for 
 // further processing
-fn parse_line(line: &String) -> LineContent {
+fn parse_line(line: &String, line_num: usize) -> Result<LineContent, LineError> {
     let line = line.trim();
 
     // Line is either a comment or pure whitespace
     if line.starts_with("//") || line.is_empty() {
-        return LineContent::NonRelevant;
+        Ok(LineContent::NonRelevant)
     }
     // Line declares the start of a section
     else if line.starts_with(".section") {
-        if line.contains("Code") || line.contains("code") {
-            return LineContent::Section(Section::Code);
-        }
-        else if line.contains("Data") || line.contains("data") {
-            return LineContent::Section(Section::Data);
-        }
-        else {
-            return LineContent::Error(LineError::WrongSection(line.trim()
-                                                                  .to_string()));
-        }
+        parsed_section(line, line_num)
     }
     // Line is declaring Data
     else if line.starts_with(|x: char| x == '\"' || x.is_ascii_digit()) {
-        if line.starts_with("\"") {
-            // Line is a string
-            let data = line.trim_matches('\"').as_bytes().to_vec();
-            return LineContent::Data(data);
-        }
-        else {
-            // Line is an array
-            let data = line.split(',')
-                            .map(|s| match s.trim().parse() {
-                                Ok(v) => v,
-                                Err(e) => {println!("{}", e); 0},
-                            });
-            return LineContent::Data(data.map(|x| x as u8).collect()); 
-        }
+        parsed_data(line, line_num)
     }
     // Line is a label
     else if line.contains(":") {
-        // Trim whitespace and eliminate the ':' character at the end
-        let symbol = {
-            let s = line[0..line.len()-1].to_string();
-            if s.contains(" ") || s.contains("\t") {
-                return LineContent::Error(LineError::LabelWhitespace(s));
-            } else {
-                s
-            }
-        };
-        return LineContent::Label(symbol)
+        parsed_label(line, line_num)
     }
     // Line is either an instruction or a syntax error
     else  {
-        let mut instr: Vec<_> = line.split(" ").map(|s| s.to_string()).collect();
-        if instr.len() >= 1 && instr[0].is_ascii() {
-            let mnemonic = instr.remove(0).to_lowercase().to_string();
-            let params = instr;
-            return LineContent::Instruction(mnemonic, params);
-        } else {
-            // Unrecognized string pattern
-            return LineContent::Error(LineError::Unrecognized(line.trim().to_string()));
-        }
+        parsed_instruction(line, line_num)
     }
 }
 
+// **************************** HELPER FUNCTIONS **************************** //
 
-// TESTING MODULE
+fn parsed_section(line: &str, line_num: usize) -> Result<LineContent, LineError> {
+    if line.contains("Code") || line.contains("code") {
+        Ok(LineContent::Section(Section::Code))
+    }
+    else if line.contains("Data") || line.contains("data") {
+        Ok(LineContent::Section(Section::Data))
+    }
+    else {
+        Err(LineError::WrongSection(line.trim().to_string(), line_num))
+    } 
+}
+
+fn parsed_data(line: &str, line_num: usize) -> Result<LineContent, LineError> {
+    if line.starts_with("\"") {
+        // Line is a string
+        let data = line.trim_matches('\"').as_bytes().to_vec();
+        return Ok(LineContent::Data(data));
+    } else if line.chars().nth(0).unwrap().is_ascii_digit() {
+        // Line is an array
+        let data = line.split(',')
+                        .map(|s| match s.trim().parse() {
+                            Ok(v) => v,
+                            Err(e) => {println!("{}", e); 0},
+                        });
+        return Ok(LineContent::Data(data.map(|x| x as u8).collect())); 
+    } else {
+        Err(LineError::Unrecognized(line.to_string(), line_num))
+    }
+}
+
+fn parsed_label(line: &str, line_num: usize) -> Result<LineContent, LineError> {
+    // Trim whitespace and eliminate the ':' character at the end
+    let l = line[0..line.len()-1].to_string();
+    if l.contains(" ") || l.contains("\t") {
+        Err(LineError::LabelWhitespace(l, line_num))
+    } else {
+        Ok(LineContent::Label(l))
+    }
+}
+
+fn parsed_instruction(line: &str, line_num: usize) -> Result<LineContent, LineError> {
+    let mut instr: Vec<_> = line.split(" ").map(|s| s.to_string()).collect();
+    if instr.len() >= 1 && instr[0].is_ascii() {
+        let mnemonic = instr.remove(0).to_lowercase().to_string();
+        let params = instr;
+        return Ok(LineContent::Instruction(mnemonic, params));
+    } else {
+        // Unrecognized string pattern
+        return Err(LineError::Unrecognized(line.trim().to_string(), line_num));
+    } 
+}
+
+// ***************************** TESTING MODULE ***************************** //
 #[cfg(test)]
 mod tests {
     use std::{io::Read, fs::remove_file};
-
+    use std::collections::HashMap;
     use super::*;
 
     #[test]
@@ -274,7 +216,8 @@ mod tests {
             code_section: (None, None),
             data_section: (None, None)
         };
-        assert_eq!(compare_symbols.labels, parse_symbols("test/file1.s").labels);
+        assert_eq!(compare_symbols.labels, 
+                   parse_symbols("test/file1.s").unwrap().labels);
     }
 
     #[test]
@@ -288,7 +231,8 @@ mod tests {
             code_section: (None, None),
             data_section: (None, None)
         };
-        assert_eq!(compare_symbols.labels, parse_symbols("test/file2.s").labels);
+        assert_eq!(compare_symbols.labels, 
+                   parse_symbols("test/file2.s").unwrap().labels);
     }
 
     #[test]
@@ -301,8 +245,10 @@ mod tests {
 
     fn compare_files(ref_asm_path: &str, ref_bin_path: &str) -> Result<(), ()> {
         let result_bin_name = &format!("{}_test.bin", ref_bin_path);
-        let symbols = parse_symbols(&ref_asm_path);
-        assemble_program(&ref_asm_path, symbols, &result_bin_name);
+        let symbols = parse_symbols(&ref_asm_path).unwrap();
+        if let Err(_) = assemble_program(&ref_asm_path, symbols, &result_bin_name) {
+            panic!();
+        }
 
         let f_ref = File::open(ref_bin_path).expect("could not open file");
         let f_res = File::open(result_bin_name).expect("Could not open file");

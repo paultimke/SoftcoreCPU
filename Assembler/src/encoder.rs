@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
-use crate::parser::Symbols;
+use crate::symbols::Symbols;
 use crate::err_handler::*;
 
 // ********************* VARIABLES AND TYPE DEFINITIONS ******************** //
@@ -21,7 +21,7 @@ const UNUSED: u8 = 0x00; // Default for the Unused field in InstructionType
 
 // Callback function returned to the parser on mnemonic matches to encode
 // complete instruction as a byte pair
-type EncodeCallback = fn(Vec<String>, &Symbols, usize) -> [u8; 2];
+type EncodeCallback = fn(Vec<String>, &Symbols, usize) -> Result<[u8; 2], LineError>;
 
 // Look-up table for Mnemonics and corresponding encoder function
 pub static MNEMONICS: Lazy<HashMap<&str, EncodeCallback>> = Lazy::new(|| {
@@ -112,44 +112,44 @@ fn encode(instr: InstructionType) -> [u8; 2] {
 
 // Check if a given string matches the name of a valid register
 // in the REGISTER look-up table
-fn get_valid_reg(r: &str, curr_line_num: usize) -> u8 {
+fn get_valid_reg(r: &str, line_num: usize) -> Result<u8, LineError> {
     match REGISTERS.get(r) {
-        Some(val) => *val,
-        None => {error_handler(LineError::Unrecognized(String::from(r)), 
-                               curr_line_num); 0}
+        Some(val) => Ok(*val),
+        None => Err(LineError::Unrecognized(String::from(r), line_num))
     }
 }
 
 // Check if a given string can be converted to a valid integer
-fn get_valid_imm(c: &str, curr_line_num: usize) -> u8 {
+fn get_valid_imm(c: &str, line_num: usize) -> Result<u8, LineError> {
     if c.starts_with("#") {
         let imm = match c[1..].parse::<i8>() {
-            Ok(val) => val,
-            Err(_) => {error_handler(LineError::Unrecognized(String::from(c)), 
-                                     curr_line_num); 0}
-        } as u8;
-        return imm;
+            Ok(val) => Ok(val),
+            Err(_) => Err(LineError::Unrecognized(String::from(c), line_num))
+        }? as u8;
+        return Ok(imm);
     } else {
-        error_handler(LineError::StartWithHash, curr_line_num);
-        return 0;
+        Err(LineError::StartWithHash(line_num))
     }
 }
 
 // Check if a given label exists as valid in symbol table
-fn get_valid_label(label: &str, syms: &Symbols, curr_line_num: usize) -> u16 {
+fn get_valid_label(label: &str, syms: &Symbols, line_num: usize) 
+-> Result<u16, LineError> {
     match syms.labels.get(label) {
-        Some(l) => *l,
-        None => {error_handler(LineError::Unrecognized(String::from(label)), 
-                 curr_line_num); 0}
+        Some(l) => Ok(*l),
+        None => Err(LineError::Unrecognized(String::from(label), line_num))
     }
 }
 
 // Calls error handler in incorrect number of arguments for a given operation, 
 // where f can be a function or closure that returns true is the length is valid
 // or false if the length is invalid
-fn check_args_len(f: impl Fn() -> bool, op: &str, curr_line_num: usize) -> () {
+fn check_args_len(f: impl Fn() -> bool, op: &str, line_num: usize) 
+-> Result<(), LineError> {
     if !f() {
-        error_handler(LineError::WrongArgs(op.to_string()), curr_line_num);
+        Err(LineError::WrongArgs(op.to_string(), line_num))
+    } else {
+        Ok(())
     }
 }
 
@@ -158,243 +158,243 @@ fn check_args_len(f: impl Fn() -> bool, op: &str, curr_line_num: usize) -> () {
 // MOV Operation can be one of two variants: Immediate or with Registers
 // The kind of variant is determined here by the type of the second argument
 // Immediate variant is of T1 and Register variant is of T2 with f1: Unused
-pub fn mov(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 2, "mov", line_number);
+pub fn mov(args: Vec<String>, _ : &Symbols, line_num: usize) -> 
+Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 2, "mov", line_num)?;
 
-    let mut bytes = [0, 0];
-    let reg_dst = get_valid_reg(&args[0], line_number); //Try to get valid reg
-
+    let reg_dst = get_valid_reg(&args[0], line_num)?; 
+    
     // Determine kind of operation
     if args[1].starts_with("#") {
         // Operation is Move Immediate
         let opcode: u8 = 0x00;
-        let constant: u8 = get_valid_imm(&args[1], line_number);
-        bytes = encode(InstructionType::T1(opcode, reg_dst, constant));
+        let constant: u8 = get_valid_imm(&args[1], line_num)?;
+        Ok(encode(InstructionType::T1(opcode, reg_dst, constant)))
     } else if let Some(val) = REGISTERS.get(&args[1].as_str()) {
         // Operation is Move with Registers
         let opcode: u8 = 0x01;
         let reg_src: u8 = *val;
-        bytes = encode(InstructionType::T2(opcode, reg_dst, reg_src, UNUSED));
+        Ok(encode(InstructionType::T2(opcode, reg_dst, reg_src, UNUSED)))
     } else {
         // Unrecognized second argument
-        error_handler(LineError::Unrecognized(args[1].clone()), line_number)
+        Err(LineError::Unrecognized(args[1].clone(), line_num))
     }
-    bytes
 }
 
 // LDA: Instruction belongs to T3
-pub fn lda(args: Vec<String>, syms: &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 1, "lda", line_number);
+pub fn lda(args: Vec<String>, syms: &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "lda", line_num)?;
 
     let opcode = 0x02;
-    let label = get_valid_label(&args[0], &syms, line_number);
-
-    encode(InstructionType::T3(opcode, label))
+    let label = get_valid_label(&args[0], &syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
 } 
 
 // LDR: Instruction belongs to T2 where f1 is type Offset
-pub fn ldr(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 2 || args.len() == 3 , "ldr", line_number);
+pub fn ldr(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 2 || args.len() == 3 , "ldr", line_num)?;
 
-    let mut bytes = [0, 0];
     let mut offset: u8 = 0; // Default offset to 0
-    let reg_dst = get_valid_reg(&args[0], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?;
     if args[1].starts_with("&") {
         // Eliminate the & sign before checking if reg name is valid
-        let reg_adr = get_valid_reg(&args[1][1..], line_number);  
+        let reg_adr = get_valid_reg(&args[1][1..], line_num)?;  
          
         if args.len() == 3 {
-            offset = get_valid_imm(&args[2], line_number);
+            offset = get_valid_imm(&args[2], line_num)?;
         }
 
         let opcode = 0x03;
-        bytes = encode(InstructionType::T2(opcode, reg_dst, reg_adr, offset))
+        Ok(encode(InstructionType::T2(opcode, reg_dst, reg_adr, offset)))
         
-    } else {error_handler(LineError::StartWithAmp, line_number)}
-
-    bytes
+    } else {
+        Err(LineError::StartWithAmp(line_num))
+    }
 }
 
 // STRA: Instruction belongs to T3
-pub fn stra(args: Vec<String>, syms: &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 1, "stra", line_number);
+pub fn stra(args: Vec<String>, syms: &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "stra", line_num)?;
 
     let opcode = 0x04;
-    let label = get_valid_label(&args[0], &syms, line_number);
-
-    encode(InstructionType::T3(opcode, label))
+    let label = get_valid_label(&args[0], &syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
 }
 
 // STRR: Instruction belongs to T2 where f1 is type Offset
-pub fn strr(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 2 || args.len() == 3 , "strr", line_number);
+pub fn strr(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 2 || args.len() == 3 , "strr", line_num)?;
 
-    let mut bytes = [0, 0];
     let mut offset: u8 = 0; // Default offset to 0
-    let reg_dst = get_valid_reg(&args[0], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?;
     if args[1].starts_with("&") {
         // Eliminate the & sign before checking if reg name is valid
-        let reg_adr = get_valid_reg(&args[1][1..], line_number);  
+        let reg_adr = get_valid_reg(&args[1][1..], line_num)?;  
          
         if args.len() == 3 {
             if args[2].starts_with("#") {
-                offset = get_valid_imm(&args[2], line_number);
+                offset = get_valid_imm(&args[2], line_num)?;
             } 
         }
 
         let opcode = 0x05;
-        bytes = encode(InstructionType::T2(opcode, reg_dst, reg_adr, offset))
+        Ok(encode(InstructionType::T2(opcode, reg_dst, reg_adr, offset)))
         
-    } else {error_handler(LineError::StartWithAmp, line_number)}
-
-    bytes
+    } else {
+        Err(LineError::StartWithAmp(line_num))
+    }
 }
 
 // PUSH: Instruction belongs to T4 
-pub fn push(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
+pub fn push(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
     check_args_len(|| args.len() >=1 && args.len() <= 3 ,"push/pop operation", 
-                                                                line_number);
-
+                                                                line_num)?;
     let opcode = 0x06;
-    let reg_a = get_valid_reg(&args[0], line_number); // Reg A mandatory
+    let reg_a = get_valid_reg(&args[0], line_num)?; // Reg A mandatory
     let mut reg_b = 0; // Reg B defaults to 0
     let mut reg_c = 0; // Reg C defaults to 0
 
     match args.len() {
-        2 => reg_b = get_valid_reg(&args[1], line_number),
+        2 => reg_b = get_valid_reg(&args[1], line_num)?,
         3 => {
-            reg_b = get_valid_reg(&args[1], line_number);
-            reg_c = get_valid_reg(&args[2], line_number);
+            reg_b = get_valid_reg(&args[1], line_num)?;
+            reg_c = get_valid_reg(&args[2], line_num)?;
         }
         _ => ()
     }
-    
-    encode(InstructionType::T4(opcode, reg_a, reg_b, reg_c))
+    Ok(encode(InstructionType::T4(opcode, reg_a, reg_b, reg_c)))
 }
 
 // POP: Instruction belongs to T4 
 // Pop instruction does exactly the same as Push instruction. They only differ
 // by the opcode. Here, we implement by summing 1 to the opcode field of the
 // result given by the encoding of the push instruction
-pub fn pop(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    let mut bytes = push(args, &Symbols::new(), line_number);
+pub fn pop(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    let mut bytes = push(args, &Symbols::new(), line_num)?;
     bytes[0] |= 0b0000_1000; // Sum 1 (00110 becomes 00111)
-    bytes
+    Ok(bytes)
 }
 
 // ADD Operation can be one of two variants: Immediate or with Registers
 // The kind of variant is determined here by the type of the third argument
 // Immediate variant is of T2 (f: Constant) and Register variant is of T4
-pub fn add(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 3, "add", line_number);
+pub fn add(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 3, "add", line_num)?;
 
-    let mut bytes = [0, 0];
-    let reg_dst = get_valid_reg(&args[0], line_number); 
-    let reg_a = get_valid_reg(&args[1], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?; 
+    let reg_a = get_valid_reg(&args[1], line_num)?;
 
     // Determine kind of operation
     if args[2].starts_with("#") {
         // Operation is Add Immediate
         let opcode: u8 = 0x08;
-        let constant: u8 = get_valid_imm(&args[2], line_number);
-        bytes = encode(InstructionType::T2(opcode, reg_dst, reg_a, constant));
+        let constant: u8 = get_valid_imm(&args[2], line_num)?;
+        Ok(encode(InstructionType::T2(opcode, reg_dst, reg_a, constant)))
     } else if let Some(val) = REGISTERS.get(&args[2].as_str()) {
         // Operation is Move with Registers
         let opcode: u8 = 0x09;
         let reg_b: u8 = *val;
-        bytes = encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b));
+        Ok(encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b)))
     } else {
         // Unrecognized third argument
-        error_handler(LineError::Unrecognized(args[2].clone()), line_number)
+        Err(LineError::Unrecognized(args[2].clone(), line_num))
     }
-    bytes
 }
 
 // SUB Operation can be one of two variants: Immediate or with Registers
 // The kind of variant is determined here by the type of the third argument
 // Immediate variant is of T2 (f: Constant) and Register variant is of T4
-pub fn sub(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 3, "sub", line_number);
+pub fn sub(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 3, "sub", line_num)?;
 
-    let mut bytes = [0, 0];
-    let reg_dst = get_valid_reg(&args[0], line_number); 
-    let reg_a = get_valid_reg(&args[1], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?; 
+    let reg_a = get_valid_reg(&args[1], line_num)?;
 
     // Determine kind of operation
     if args[2].starts_with("#") {
         // Operation is Add Immediate
         let opcode: u8 = 0x0A;
-        let constant: u8 = get_valid_imm(&args[2], line_number);
-        bytes = encode(InstructionType::T2(opcode, reg_dst, reg_a, constant));
+        let constant: u8 = get_valid_imm(&args[2], line_num)?;
+        Ok(encode(InstructionType::T2(opcode, reg_dst, reg_a, constant)))
     } else if let Some(val) = REGISTERS.get(&args[2].as_str()) {
         // Operation is Move with Registers
         let opcode: u8 = 0x0B;
         let reg_b: u8 = *val;
-        bytes = encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b));
+        Ok(encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b)))
     } else {
         // Unrecognized third argument
-        error_handler(LineError::Unrecognized(args[2].clone()), line_number)
+        Err(LineError::Unrecognized(args[2].clone(), line_num))
     }
-    bytes
 }
 
 // SHL: Instruction of type T5
-pub fn shl(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 3, "shift", line_number);
+pub fn shl(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 3, "shift", line_num)?;
 
-    let mut bytes = [0, 0];
-    let reg_dst = get_valid_reg(&args[0], line_number); 
-    let reg_src = get_valid_reg(&args[1], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?; 
+    let reg_src = get_valid_reg(&args[1], line_num)?;
 
     if args[2].starts_with("#") {
         // Operation is Add Immediate
         let opcode: u8 = 0x0C;
-        let constant: u8 = get_valid_imm(&args[2], line_number);
-        bytes = encode(InstructionType::T5(opcode, reg_dst, reg_src, constant));
+        let constant: u8 = get_valid_imm(&args[2], line_num)?;
+        Ok(encode(InstructionType::T5(opcode, reg_dst, reg_src, constant)))
     } else {
         // Immediate does not start with hash sign
-        error_handler(LineError::StartWithHash, line_number);
+        Err(LineError::StartWithHash(line_num))
     }
-    bytes
 }
 
 // SHR: Instruction belongs to T5
 // SHR instruction can be implemented the same as SHR instruction. They only 
 // differ by the opcode. Here, we implement by summing 1 to the opcode field of the
 // result given by the encoding of the shr instruction
-pub fn shr(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    let mut bytes = shl(args, &Symbols::new(), line_number);
+pub fn shr(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    let mut bytes = shl(args, &Symbols::new(), line_num)?;
     bytes[0] |= 0b0000_1000; // Sum 1 (01100 becomes 01101)
-    bytes
+    Ok(bytes)
 }
 
 // AND: Instruction belongs to T4 
-pub fn and(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 3 ,"logical operation", line_number);
+pub fn and(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 3 ,"logical operation", line_num)?;
 
     let opcode = 0x0E;
-    let reg_dst = get_valid_reg(&args[0], line_number);
-    let reg_a = get_valid_reg(&args[1], line_number); 
-    let reg_b = get_valid_reg(&args[2], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?;
+    let reg_a = get_valid_reg(&args[1], line_num)?; 
+    let reg_b = get_valid_reg(&args[2], line_num)?;
     
-    encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b))
+    Ok(encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b)))
 }
 
 // OR: Instruction belongs to T4. Implementede by adding one to the opcode
 // field of the encoding result of AND operation
-pub fn or(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    let mut bytes = and(args, &Symbols::new(), line_number);
+pub fn or(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    let mut bytes = and(args, &Symbols::new(), line_num)?;
     bytes[0] |= 0b0000_1000; // Sum 1 (01110 becomes 01111)
-    bytes
+    Ok(bytes)
 }
 
 // NOT: Instruction belongs to T2
-pub fn not(args: Vec<String>, _ : &Symbols, line_number: usize) -> [u8; 2] {
-    check_args_len(|| args.len() == 2, "not", line_number);
+pub fn not(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 2, "not", line_num)?;
 
     let opcode = 0x10;
-    let reg_dst = get_valid_reg(&args[0], line_number);
-    let reg_src = get_valid_reg(&args[1], line_number);
+    let reg_dst = get_valid_reg(&args[0], line_num)?;
+    let reg_src = get_valid_reg(&args[1], line_num)?;
 
-    encode(InstructionType::T2(opcode, reg_dst, reg_src, UNUSED))
+    Ok(encode(InstructionType::T2(opcode, reg_dst, reg_src, UNUSED)))
 }
