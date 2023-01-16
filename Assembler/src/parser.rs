@@ -1,6 +1,6 @@
 use std::fs::{File};
 use std::io::{BufRead, BufReader, BufWriter, Write};
-use crate::err_handler::*;
+use crate::err_handler::LineError;
 use crate::symbols::{Symbols, Section};
 
 // ********************* VARIABLES AND TYPE DEFINITIONS ******************** //
@@ -62,7 +62,7 @@ pub fn parse_symbols(file: &str) -> Result<Symbols, LineError> {
 // SECOND PASS OF ASSEMBLY PROCESS: Traverses each section (code and data)
 // line by line. Instructions and data are decoded and written to a binary
 // output file
-pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str) 
+pub fn assemble_program(file: &str, syms: Symbols, out_file: &str) 
 -> Result<(), LineError> {
     use super::encoder::MNEMONICS;
 
@@ -70,18 +70,17 @@ pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str)
         let f = File::create(out_file).expect("Could not create file");
         BufWriter::new(f)
     };
-
     let lines = {
         let file = File::open(file).expect("Could not open file");
         BufReader::new(file).lines()
     };
 
-    let code_start = symbols.code_section.0.unwrap();
-    let code_end = symbols.code_section.1.unwrap();
-    let data_start = symbols.data_section.0.unwrap();
-    let data_end = symbols.data_section.1.unwrap();
+    let code_start = syms.code_section.0.unwrap();
+    let code_end = syms.code_section.1.unwrap();
+    let data_start = syms.data_section.0.unwrap();
+    let data_end = syms.data_section.1.unwrap();
 
-    // Read entire file
+    // Traverse entire file
     for (idx, line) in lines.enumerate() {
         let line = line.unwrap();
 
@@ -92,9 +91,10 @@ pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str)
                     // Check if Mnemonic exists. If not, throw error
                     match MNEMONICS.get(m.as_str()) {
                         Some(func) => {
-                            let [msb, lsb] = func(args, &symbols, idx)?;
-                            write!(out_file, "{}{}", msb, lsb)
-                            .expect("Could not write to output file");
+                            // Encode instruction into two bytes [msb, lsb]
+                            let bytes = func(trim_comments(args), &syms, idx)?;
+                            // Write encoded bytes to output file
+                            out_file.write_all(&bytes).expect("Can not write output file");
                             Ok(())
                         }
                         None => Err(LineError::Unrecognized(m, idx))
@@ -103,7 +103,6 @@ pub fn assemble_program(file: &str, symbols: Symbols, out_file: &str)
                 _ => Ok(()) // Only care if line is an instruction
             }?
         }
-
         // Assemble Data Section
         else if idx > data_start && idx < data_end {
 
@@ -143,6 +142,18 @@ fn parse_line(line: &String, line_num: usize) -> Result<LineContent, LineError> 
 }
 
 // **************************** HELPER FUNCTIONS **************************** //
+
+fn trim_comments(args: Vec<String>) -> Vec<String>{
+    let mut v = args;
+    for i in 0..v.len() {
+        if v[i].starts_with("//") {
+            v.truncate(i);
+            break;
+        }
+    }
+    let v = v.iter().filter(|s| s.trim().len() != 0).map(|s| s.to_string()).collect();
+    v
+}
 
 fn parsed_section(line: &str, line_num: usize) -> Result<LineContent, LineError> {
     if line.contains("Code") || line.contains("code") {

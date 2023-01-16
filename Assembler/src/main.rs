@@ -9,8 +9,8 @@ use parser::*;
 // the input file, flags and name of the output file instead
 // of harcoding the names and paths
 fn main() {
-    let file = "test/file2.s";
-    let out_file = "file2.bin";
+    let file = "test/file1.s";
+    let out_file = "out.bin";
 
     // First Pass of Assembly Process.
     // Returns a symbol table for labels and ranges for Code and Data sections
