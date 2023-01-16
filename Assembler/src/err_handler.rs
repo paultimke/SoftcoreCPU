@@ -24,7 +24,7 @@ pub fn error_handler(e: &LineError, file_name: &str) -> () {
     match e {
         LineError::LabelMultiple(n) => {
             println!("{}Can not declare multiple labels with the same name\n
-                       Line Number: {}\n", header, n);
+                       Line Number: {}\n", header, n + 1);
         }
         LineError::OnlyDataSection => {
             println!("{}Can not assemble program with only a data\
@@ -36,31 +36,31 @@ pub fn error_handler(e: &LineError, file_name: &str) -> () {
         }
         LineError::StartWithAmp(n) => {
             println!("{}Registers used as addresses must be prefixed with '{}'\n
-                    Line Number: {}\n", header, "&".bold(), n);
+                    Line Number: {}\n", header, "&".bold(), n + 1);
         }
         LineError::StartWithHash(n) => {
             println!("{}Immediate values must be prefixed with '{}'\n
-                        Line Number: {}", header, "#".bold(), n);
+                        Line Number: {}", header, "#".bold(), n + 1);
         }
         LineError::WrongSection(msg, n) => {
             println!("{}Did not recognize '{}'. Sections may only be {} or {}\n
                     Line Number: {}\n", 
-                    header, msg.bold(), "code".bold(), "data".bold(), n);
+                    header, msg.bold(), "code".bold(), "data".bold(), n + 1);
         }
         LineError::WrongArgs(msg, n) => {
             println!("{}Invalid number of arguments in {}\nLine Number: {}",
-                        header, msg.bold(), n);
+                        header, msg.bold(), n + 1);
         }
         LineError::LabelWhitespace(msg, n) => {
             println!("{}Label name must be alone in a line and \
                         without any whitespaces in between:\n'{}'\n\
                         Please do not use '{}' if you did not intend to \
                         declare a label\nLine Number: {}\n", 
-                        header, msg.bold(), ":".red().bold(), n);
+                        header, msg.bold(), ":".red().bold(), n + 1);
         }
         LineError::Unrecognized(msg, n) => {
             println!("{}Did not recognize '{}'\nLine Number: {}\n", 
-                        header, msg.bold(), n);
+                        header, msg.bold(), n + 1);
         }
     }
 }
