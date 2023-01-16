@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use once_cell::sync::Lazy;
 use crate::symbols::Symbols;
-use crate::err_handler::*;
+use crate::err_handler::LineError;
 
 // ********************* VARIABLES AND TYPE DEFINITIONS ******************** //
 
@@ -18,6 +18,7 @@ enum InstructionType {
     T5(u8, u8, u8, u8)  // Fifth field unused
 }
 const UNUSED: u8 = 0x00; // Default for the Unused field in InstructionType
+const BYTE: u8 = 8;
 
 // Callback function returned to the parser on mnemonic matches to encode
 // complete instruction as a byte pair
@@ -27,30 +28,30 @@ type EncodeCallback = fn(Vec<String>, &Symbols, usize) -> Result<[u8; 2], LineEr
 pub static MNEMONICS: Lazy<HashMap<&str, EncodeCallback>> = Lazy::new(|| {
     let mut m = HashMap::new();
     m.insert("mov", mov as EncodeCallback);
-    m.insert("lda", mov as EncodeCallback);
-    m.insert("ldr", mov as EncodeCallback);
-    m.insert("stra", mov as EncodeCallback);
-    m.insert("strr", mov as EncodeCallback);
-    m.insert("push", mov as EncodeCallback);
-    m.insert("pop", mov as EncodeCallback);
-    m.insert("add", mov as EncodeCallback);
-    m.insert("sub", mov as EncodeCallback);
-    m.insert("shl", mov as EncodeCallback);
-    m.insert("shr", mov as EncodeCallback);
-    m.insert("and", mov as EncodeCallback);
-    m.insert("or", mov as EncodeCallback);
-    m.insert("not", mov as EncodeCallback);
-    m.insert("jmp", mov as EncodeCallback);
-    m.insert("bln", mov as EncodeCallback);
-    m.insert("ret", mov as EncodeCallback);
-    m.insert("cmp", mov as EncodeCallback);
-    m.insert("beq", mov as EncodeCallback);
-    m.insert("bne", mov as EncodeCallback);
-    m.insert("bgt", mov as EncodeCallback);
-    m.insert("bgtu", mov as EncodeCallback);
-    m.insert("blt", mov as EncodeCallback);
-    m.insert("bltu", mov as EncodeCallback);
-    m.insert("halt", mov as EncodeCallback);
+    m.insert("lda", lda as EncodeCallback);
+    m.insert("ldr", ldr as EncodeCallback);
+    m.insert("stra", stra as EncodeCallback);
+    m.insert("strr", strr as EncodeCallback);
+    m.insert("push", push as EncodeCallback);
+    m.insert("pop", pop as EncodeCallback);
+    m.insert("add", add as EncodeCallback);
+    m.insert("sub", sub as EncodeCallback);
+    m.insert("shl", shl as EncodeCallback);
+    m.insert("shr", shr as EncodeCallback);
+    m.insert("and", and as EncodeCallback);
+    m.insert("or", or as EncodeCallback);
+    m.insert("not", not as EncodeCallback);
+    m.insert("jmp", jmp as EncodeCallback);
+    m.insert("bln", bln as EncodeCallback);
+    m.insert("ret", ret as EncodeCallback);
+    m.insert("cmp", cmp as EncodeCallback);
+    m.insert("beq", beq as EncodeCallback);
+    m.insert("bne", bne as EncodeCallback);
+    m.insert("bgt", bgt as EncodeCallback);
+    m.insert("bgtu", bgtu as EncodeCallback);
+    m.insert("blt", blt as EncodeCallback);
+    m.insert("bltu", bltu as EncodeCallback);
+    m.insert("halt", halt as EncodeCallback);
     m
 });
 
@@ -77,34 +78,48 @@ pub static REGISTERS: Lazy<HashMap<&str, u8>> = Lazy::new(|| {
 // Encodes the passed in values by their InstructionType as specified
 // by the reference manual.
 fn encode(instr: InstructionType) -> [u8; 2] {
-    let opcode_shift = 11;
+    let opcode_shift  = 11;
     let reg_pos0_shift = 8;
     let reg_pos1_shift = 5;
     match instr {
         InstructionType::T1(op,r,c) => {
-            [(op << opcode_shift) | (r << reg_pos0_shift), c]
+            // TODO: Fix shift overflow. Must treat vars first as u16 then cast
+            let msb = {
+                let x = ((op as u16) << opcode_shift) | ((r as u16) << reg_pos0_shift);
+                (x >> BYTE) as u8
+            };
+            [msb, c]
         }
         InstructionType::T2(op,rp0,rp1,f1) => {
-            let msb = (op << opcode_shift) | (rp0 << reg_pos0_shift);
-            let lsb = (rp1 << reg_pos1_shift) | f1;
+            let msb = {
+                let x = ((op as u16) << opcode_shift) | ((rp0 as u16) << reg_pos0_shift); 
+                (x >> BYTE) as u8
+            };
+            let lsb = (((rp1 as u16) << reg_pos1_shift) | (f1 as u16)) as u8;
             [msb, lsb]
         }
         InstructionType::T3(op,f2) => {
-            let instr16bit: u16 = ((op << opcode_shift) as u16) | f2;
+            let instr16bit: u16 = ((op as u16) << opcode_shift) | f2 ;
             let msb = (instr16bit >> 8) as u8;
             let lsb = instr16bit as u8;
             [msb, lsb]
         }
         InstructionType::T4(op,rp0,rp1,rp2) => {
-            let reg_pos2_shift = 3;
-            let msb = (op << opcode_shift) | (rp0 << reg_pos0_shift);
-            let lsb = (rp1 << reg_pos1_shift) | (rp2 << reg_pos2_shift);
-            [msb, lsb]
+            let reg_pos2_shift = 2;
+            let msb = {
+                let x = ((op as u16) << opcode_shift) | ((rp0 as u16) << reg_pos0_shift);
+                (x >> BYTE) as u8 
+            };
+            let lsb = ((rp1 as u16) << reg_pos1_shift) | ((rp2 as u16) << reg_pos2_shift);
+            [msb, lsb as u8]
         }
         InstructionType::T5(op,rp0,rp1,c) => {
             let imm_shift = 1;
-            let msb = (op << opcode_shift) | (rp0 << reg_pos0_shift);
-            let lsb = (rp1 << reg_pos1_shift) | (c << imm_shift);
+            let msb = {
+                let x = ((op as u16) << opcode_shift) | ((rp0 as u16) << reg_pos0_shift);
+                (x >> BYTE) as u8 
+            };
+            let lsb = (((rp1 as u16) << reg_pos1_shift) | ((c as u16) << imm_shift)) as u8;
             [msb, lsb]
         }
     }
@@ -185,7 +200,6 @@ Result<[u8; 2], LineError> {
 pub fn lda(args: Vec<String>, syms: &Symbols, line_num: usize) 
 -> Result<[u8; 2], LineError> {
     check_args_len(|| args.len() == 1, "lda", line_num)?;
-
     let opcode = 0x02;
     let label = get_valid_label(&args[0], &syms, line_num)?;
     Ok(encode(InstructionType::T3(opcode, label)))
@@ -218,7 +232,6 @@ pub fn ldr(args: Vec<String>, _ : &Symbols, line_num: usize)
 pub fn stra(args: Vec<String>, syms: &Symbols, line_num: usize) 
 -> Result<[u8; 2], LineError> {
     check_args_len(|| args.len() == 1, "stra", line_num)?;
-
     let opcode = 0x04;
     let label = get_valid_label(&args[0], &syms, line_num)?;
     Ok(encode(InstructionType::T3(opcode, label)))
@@ -369,12 +382,10 @@ pub fn shr(args: Vec<String>, _ : &Symbols, line_num: usize)
 pub fn and(args: Vec<String>, _ : &Symbols, line_num: usize) 
 -> Result<[u8; 2], LineError> {
     check_args_len(|| args.len() == 3 ,"logical operation", line_num)?;
-
     let opcode = 0x0E;
     let reg_dst = get_valid_reg(&args[0], line_num)?;
     let reg_a = get_valid_reg(&args[1], line_num)?; 
     let reg_b = get_valid_reg(&args[2], line_num)?;
-    
     Ok(encode(InstructionType::T4(opcode, reg_dst, reg_a, reg_b)))
 }
 
@@ -391,10 +402,121 @@ pub fn or(args: Vec<String>, _ : &Symbols, line_num: usize)
 pub fn not(args: Vec<String>, _ : &Symbols, line_num: usize) 
 -> Result<[u8; 2], LineError> {
     check_args_len(|| args.len() == 2, "not", line_num)?;
-
     let opcode = 0x10;
     let reg_dst = get_valid_reg(&args[0], line_num)?;
     let reg_src = get_valid_reg(&args[1], line_num)?;
-
     Ok(encode(InstructionType::T2(opcode, reg_dst, reg_src, UNUSED)))
+}
+
+// JMP: Instruction belongs to T3
+pub fn jmp(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "jmp", line_num)?;
+    let opcode = 0x11;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// BLN: Instruction belongs to T3
+pub fn bln(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "bln", line_num)?;
+    let opcode = 0x12;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// RET: Instruction belongs to T3
+pub fn ret(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 0, "ret", line_num)?;
+    let opcode = 0x13;
+    Ok(encode(InstructionType::T3(opcode, UNUSED as u16)))
+}
+
+// CMP: Instruction may be one of two variants.
+// Immediate variant is of T1 and Register variant of T2 (f1: Unused)
+pub fn cmp(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 2, "cmp", line_num)?;
+
+    let reg_a = get_valid_reg(&args[0], line_num)?; 
+    
+    // Determine kind of operation
+    if args[1].starts_with("#") {
+        // Operation is Move Immediate
+        let opcode: u8 = 0x14;
+        let constant: u8 = get_valid_imm(&args[1], line_num)?;
+        Ok(encode(InstructionType::T1(opcode, reg_a, constant)))
+    } else if let Some(val) = REGISTERS.get(&args[1].as_str()) {
+        // Operation is Move with Registers
+        let opcode: u8 = 0x15;
+        let reg_b: u8 = *val;
+        Ok(encode(InstructionType::T2(opcode, reg_a, reg_b, UNUSED)))
+    } else {
+        // Unrecognized second argument
+        Err(LineError::Unrecognized(args[1].clone(), line_num))
+    }
+}
+
+// BEQ: Instruction belongs to T3
+pub fn beq(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "beq", line_num)?;
+    let opcode = 0x16;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// BNE: Instruction belongs to T3
+pub fn bne(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "bne", line_num)?;
+    let opcode = 0x17;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// BGT: Instruction belongs to T3
+pub fn bgt(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "bgt", line_num)?;
+    let opcode = 0x18;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// BGTU: Instruction belongs to T3
+pub fn bgtu(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "bgtu", line_num)?;
+    let opcode = 0x19;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// BLT: Instruction belongs to T3
+pub fn blt(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "blt", line_num)?;
+    let opcode = 0x1A;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// BLTU: Instruction belongs to T3
+pub fn bltu(args: Vec<String>, syms : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 1, "bltu", line_num)?;
+    let opcode = 0x1B;
+    let label = get_valid_label(&args[0], syms, line_num)?;
+    Ok(encode(InstructionType::T3(opcode, label)))
+}
+
+// HALT: Instruction belongs to T3
+pub fn halt(args: Vec<String>, _ : &Symbols, line_num: usize) 
+-> Result<[u8; 2], LineError> {
+    check_args_len(|| args.len() == 0, "halt", line_num)?;
+    let opcode = 0x1C;
+    Ok(encode(InstructionType::T3(opcode, UNUSED as u16)))
 }
