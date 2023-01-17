@@ -18,6 +18,7 @@ fn main() {
     let symbols = parse_symbols(&file);
     if let Err(e) = &symbols {
         error_handler(e, &file);
+        return;
     }
     let symbols = symbols.unwrap();
 

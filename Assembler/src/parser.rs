@@ -75,17 +75,14 @@ pub fn assemble_program(file: &str, syms: Symbols, out_file: &str)
         BufReader::new(file).lines()
     };
 
-    let code_start = syms.code_section.0.unwrap();
-    let code_end = syms.code_section.1.unwrap();
-    let data_start = syms.data_section.0.unwrap();
-    let data_end = syms.data_section.1.unwrap();
-
     // Traverse entire file
     for (idx, line) in lines.enumerate() {
         let line = line.unwrap();
 
         // Assemble Code Section
-        if idx > code_start && idx < code_end {
+        if syms.code_range().is_some() && 
+           syms.code_range().unwrap().contains(&idx) 
+        {
             match parse_line(&line, idx)? {
                 LineContent::Instruction(m, args) => {
                     // Check if Mnemonic exists. If not, throw error
@@ -100,12 +97,24 @@ pub fn assemble_program(file: &str, syms: Symbols, out_file: &str)
                         None => Err(LineError::Unrecognized(m, idx))
                     }
                 }
+                LineContent::Data(_) => Err(LineError::SectionMismatch(idx)),
                 _ => Ok(()) // Only care if line is an instruction
             }?
         }
         // Assemble Data Section
-        else if idx > data_start && idx < data_end {
-
+        else if syms.data_range().is_some() && 
+                syms.data_range().unwrap().contains(&idx) 
+        {
+            match parse_line(&line, idx)? {
+                LineContent::Data(d) => {
+                    out_file.write_all(&d).expect("Can not write output file");
+                    Ok(())
+                }
+                LineContent::Instruction(_, _) => {
+                    Err(LineError::SectionMismatch(idx))
+                }
+                _ => Ok(()) // Only care if line is data
+            }?
         }
     }
 
@@ -167,10 +176,34 @@ fn parsed_section(line: &str, line_num: usize) -> Result<LineContent, LineError>
     } 
 }
 
+// Using the as_bytes() method on a string apparently treats control 
+// characters as two individual bytes. Example '\n' yields [b'\\', 'n']
+// This function finds these two-byte occurrences matching control chars
+// and replaces the first byte with the actual value for the control char
+// and removes the second byte 
+fn replace_control_ascii(s: &mut Vec<u8>) {
+    let mut vec_len = s.len();
+    let mut i = 0;
+    while i < (vec_len-1) {
+        if s[i] == b'\\' && (s[i+1] == b'n' || s[i+1] == b't') {
+            match s[i + 1] {
+                b'n' => s[i] = b'\n',
+                b't' => s[i] = b'\t',
+                _ => ()
+            }
+            s.remove(i+1); // Remove t or n (from newline or tab)
+            vec_len = vec_len - 1;
+        }
+        i += 1;
+    }
+}
+
 fn parsed_data(line: &str, line_num: usize) -> Result<LineContent, LineError> {
     if line.starts_with("\"") {
         // Line is a string
-        let data = line.trim_matches('\"').as_bytes().to_vec();
+        let mut data = line.trim_matches('\"').as_bytes().to_vec();
+        replace_control_ascii(&mut data);
+        data.push(0); // Push NULL termination character for string
         return Ok(LineContent::Data(data));
     } else if line.chars().nth(0).unwrap().is_ascii_digit() {
         // Line is an array

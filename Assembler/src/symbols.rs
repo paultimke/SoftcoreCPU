@@ -25,6 +25,20 @@ impl Symbols {
         }
     }
 
+    pub fn code_range(&self) -> Option<std::ops::Range<usize>> {
+        match self.code_section {
+            (Some(start), Some(end)) => Some(start..end),
+            _ => None
+        }
+    }
+
+    pub fn data_range(&self) -> Option<std::ops::Range<usize>> {
+        match self.data_section {
+            (Some(start), Some(end)) => Some(start..end),
+            _ => None
+        }
+    }
+
     pub fn update_sections(&mut self, s: Section, line: usize) -> () {
         let neither_declared = || self.code_section == (None, None) &&
                                   self.data_section == (None, None);
