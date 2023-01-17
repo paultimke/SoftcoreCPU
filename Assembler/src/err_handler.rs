@@ -6,6 +6,7 @@ use colored::Colorize;
 #[derive(Debug)]
 pub enum LineError {
     LabelMultiple(usize),
+    SectionMismatch(usize),
     OnlyDataSection,
     NoSectionDecl,
     StartWithAmp(usize),
@@ -25,6 +26,10 @@ pub fn error_handler(e: &LineError, file_name: &str) -> () {
         LineError::LabelMultiple(n) => {
             println!("{}Can not declare multiple labels with the same name\n
                        Line Number: {}\n", header, n + 1);
+        }
+        LineError::SectionMismatch(n) => {
+            println!("{}Can only declare instructions in Code Section and data \
+                      elements in Data Section\n Line Number: {}\n", header, n + 1);
         }
         LineError::OnlyDataSection => {
             println!("{}Can not assemble program with only a data\
