@@ -13,7 +13,7 @@ use cpu_cycle::{fetch, decode, execute};
 
 fn main() {
     let args: Vec<String> = env::args().collect();
-    if args.len() != 2 || args.len() != 3 {
+    if !(args.len() == 2 || args.len() == 3) {
         println!("{}: Please pass in 1 binary file as argument", "Error".red());
         return;
     }
