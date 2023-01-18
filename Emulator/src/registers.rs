@@ -1,3 +1,5 @@
+use colored::Colorize;
+
 // Constants
 pub const REG_TOTAL_NUM: usize = 8; // Total num of General Purpose Registers
 pub const MBR_PTR: usize = 7;   // Address of General Purpose Register MBR
@@ -62,5 +64,18 @@ impl Registers {
             Flags::OV =>
                 (self.flags & (1<<(Flags::OV as u8))) >> (Flags::OV as u8) == 1,
         }
+    }
+
+    pub fn print(&self) -> () {
+        println!("{}", "Register Values:".bold());
+        println!("REG  SIGNED UNSIGNED HEX   |  REG  SIGNED UNSIGNED HEX");
+        println!("r0:  {r0:<7}{ru0:<8} {r0:0<4X}  |  fp:  {r4:<7}{ru4:<9}{r4:0<4X}", 
+                  r0=self.gp[0], ru0=(self.gp[0] as u16), r4=self.gp[4], ru4=(self.gp[4] as u16));
+        println!("r1:  {r1:<7}{ru1:<8} {r1:0<4X}  |  sp:  {r5:<7}{ru5:<9}{r5:0<4X}", 
+                  r1=self.gp[1], ru1=(self.gp[1] as u16), r5=self.gp[5], ru5=(self.gp[5] as u16));
+        println!("r2:  {r2:<7}{ru2:<8} {r2:0<4X}  |  lr:  {r6:<7}{ru6:<9}{r6:0<4X}", 
+                  r2=self.gp[2], ru2=(self.gp[2] as u16), r6=self.gp[6], ru6=(self.gp[6] as u16));
+        println!("r3:  {r3:<7}{ru3:<8} {r3:0<4X}  |  mbr: {r7:<7}{ru7:<9}{r7:0<4X}", 
+                  r3=self.gp[3], ru3=(self.gp[3] as u16), r7=self.gp[7], ru7=(self.gp[7] as u16));
     }
 }
