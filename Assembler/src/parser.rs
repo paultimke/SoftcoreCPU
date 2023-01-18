@@ -43,7 +43,8 @@ pub fn parse_symbols(file: &str) -> Result<Symbols, LineError> {
             // SECTION: Determine line ranges for each program section
             LineContent::Section(s) => Ok(symbols.update_sections(s, line_idx)),
             // DATA: Increment address by size of data
-            LineContent::Data(d) => Ok(address += d.len() as u16),   
+            //       Divide by 2 as d is a vec of bytes, and words are 2 bytes
+            LineContent::Data(d) => Ok(address += (d.len()/2) as u16),   
             // INSTRUCTIONS: Increment address by 1
             LineContent::Instruction(_,_) => Ok(address += 1),  
             // Empty lines or comments not relevant to do any action
