@@ -1,4 +1,4 @@
-use std::fs::{File};
+use std::fs::File;
 use std::io::{BufRead, BufReader, BufWriter, Write};
 use crate::err_handler::LineError;
 use crate::symbols::{Symbols, Section};
@@ -199,23 +199,34 @@ fn replace_control_ascii(s: &mut Vec<u8>) {
 }
 
 fn parsed_data(line: &str, line_num: usize) -> Result<LineContent, LineError> {
+    let data: Vec<u16>;
     if line.starts_with("\"") {
         // Line is a string
-        let mut data = line.trim_matches('\"').as_bytes().to_vec();
-        replace_control_ascii(&mut data);
-        data.push(0); // Push NULL termination character for string
-        return Ok(LineContent::Data(data));
+        let mut char_arr = line.trim_matches('\"').as_bytes().to_vec();
+        replace_control_ascii(&mut char_arr);
+        char_arr.push(0); // Push NULL termination character for string
+        data = char_arr.iter().map(|c| *c as u16).collect();
     } else if line.chars().nth(0).unwrap().is_ascii_digit() {
         // Line is an array
-        let data = line.split(',')
-                        .map(|s| match s.trim().parse() {
-                            Ok(v) => v,
-                            Err(e) => {println!("{}", e); 0},
-                        });
-        return Ok(LineContent::Data(data.map(|x| x as u8).collect())); 
+        data = line.split(',')
+                    .map(|s| match s.trim().parse::<i16>() {
+                        Ok(v) => v,
+                        Err(e) => {println!("{} line_number: {}", e, line_num); 0},
+                    }).map(|c| c as u16).collect();
     } else {
-        Err(LineError::Unrecognized(line.to_string(), line_num))
+        return Err(LineError::Unrecognized(line.to_string(), line_num));
     }
+
+    // Convert the 16 bit data vectors to an 8-bit data vector with
+    // their msb and lsb
+    let byte_size: u8 = 8;
+    let mut new_data: Vec<u8> = Vec::new();
+    for i in 0..data.len() {
+        new_data.push((data[i] >> byte_size) as u8); // msb
+        new_data.push(data[i] as u8); // lsb
+    }
+
+    return Ok(LineContent::Data(new_data));
 }
 
 fn parsed_label(line: &str, line_num: usize) -> Result<LineContent, LineError> {
