@@ -1,23 +1,34 @@
+use std::{ops::ControlFlow};
+use std::env;
 use std::fs::File;
 use std::path::Path;
 use std::io::Read;
-use num_traits::FromPrimitive;
+use colored::Colorize;
 
 pub mod instructions;
-use instructions::{Opcode, execute};
 pub mod registers;
 use registers::*;
+pub mod cpu_cycle;
+use cpu_cycle::{fetch, decode, execute};
 
 fn main() {
+    let args: Vec<String> = env::args().collect();
+    if args.len() != 2 || args.len() != 3 {
+        println!("{}: Please pass in 1 binary file as argument", "Error".red());
+        return;
+    }
+    let file_path = &args[1];
+
     // Declare hardware components
     let mut regs = Registers::new();  // Registers
     let mut mem = Vec::new();         // Main memory (16-bit words)
 
     // Load the bytes of the binary file into a vector (Main memory)
-    load_program("test/file2.bin", &mut mem);
+    load_program(file_path, &mut mem);
 
-    // TODO: - Pass input binary file as command line argument instead of hardcoded
-    //       - Dump all register values at the end of the program (when halted)
+    regs.print();
+
+    // TODO: 
     //       - Add feature DEBUG to step through code on each iteration of the loop
     //         by pressing some key (maybe space to continue)
     //       - When on DEBUG, add feature to see register values when pressing
@@ -25,62 +36,20 @@ fn main() {
  
     // Fetch-Decode-Execute Cycle
     loop {
-        // Fetch Stage
         regs.ir = fetch(regs.pc, &mem);
-
-        // Decode Stage
         let opcode = decode(regs.ir);
 
-        // Execute Stage 
-        match FromPrimitive::from_u8(opcode) {
-            Some(Opcode::MovIm)  => execute::mov_im(&mut regs),
-            Some(Opcode::MovRg)  => execute::mov_rg(&mut regs),
-            Some(Opcode::Load)   => execute::load(&mut regs),
-            Some(Opcode::LoadRg) => execute::load_rg(&mut regs, &mem),
-            Some(Opcode::Store)  => execute::store(&regs, &mut mem),
-            Some(Opcode::StrRg)  => execute::store_rg(&regs, &mut mem),
-            Some(Opcode::Push)   => execute::push(&mut regs, &mut mem),
-            Some(Opcode::Pop)    => execute::pop(&mut regs, &mem),
-            Some(Opcode::AddIm)  => execute::add_im(&mut regs),
-            Some(Opcode::AddRg)  => execute::add_rg(&mut regs),
-            Some(Opcode::SubIm)  => execute::sub_im(&mut regs),
-            Some(Opcode::SubRg)  => execute::sub_rg(&mut regs),
-            Some(Opcode::ShftL)  => execute::shift_l(&mut regs),
-            Some(Opcode::ShftR)  => execute::shift_r(&mut regs),
-            Some(Opcode::And)    => execute::and(&mut regs),
-            Some(Opcode::Or)     => execute::or(&mut regs),
-            Some(Opcode::Not)    => execute::not(&mut regs),
-            Some(Opcode::Jmp)    => {execute::jmp(&mut regs); continue},
-            Some(Opcode::Bln)    => {execute::bln(&mut regs); continue},
-            Some(Opcode::Ret)    => {execute::ret(&mut regs); continue},
-            Some(Opcode::CmpIm)  => execute::cmp_im(&mut regs),
-            Some(Opcode::CmpRg)  => execute::cmp_rg(&mut regs),
-            Some(Opcode::Beq)    => {execute::beq(&mut regs); continue},
-            Some(Opcode::Bne)    => {execute::bne(&mut regs); continue},
-            Some(Opcode::Bgt)    => {execute::bgt(&mut regs); continue},
-            Some(Opcode::Bgtu)   => {execute::bgtu(&mut regs); continue},
-            Some(Opcode::Blt)    => {execute::blt(&mut regs); continue},
-            Some(Opcode::Bltu)   => {execute::bltu(&mut regs); continue},
-            Some(Opcode::Halt)   => {println!("Program Halted Normally");
-                                     break },
-            _ => panic!("Unrecognized Opcode"),
+        match execute(opcode, &mut regs, &mut mem) {
+            Some(ControlFlow::Continue(_)) => continue,
+            Some(ControlFlow::Break(_)) => break,
+            None => ()
         }
         regs.pc += 1;
     }
-}
 
-// Fetch stage: returns the instruction in RAM specified by pc
-fn fetch (pc: u16, ram: &Vec<u16>) -> u16 {
-    ram[pc as usize]
-}
+    println!("{}", "\nProgram Halted Normaly\n".green().bold());
+    regs.print();
 
-// Decode stage: Obtains a 5-bit value from 16-bit register to
-//               use as opcode
-fn decode (ir_reg: u16) -> u8 {
-    const OPCODE_SHIFT_OFFSET: u16 = 11;
-    // 16-bit register offseted by 11 bits to retrieve
-    // only the value of the 5 bits of the opcode
-    (ir_reg >> OPCODE_SHIFT_OFFSET) as u8
 }
 
 // Loads contents of binary executable file into a vector of
