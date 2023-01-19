@@ -2,6 +2,8 @@ pub mod encoder;
 pub mod parser;
 pub mod err_handler;
 pub mod symbols;
+use std::fs::remove_file;
+
 use err_handler::error_handler;
 use parser::*;
 
@@ -25,6 +27,7 @@ fn main() {
     // Second Pass of Assembly Process.
     // Parses instructions and encodes them into an output file
     if let Err(e) = assemble_program(&file, symbols, out_file) {
+        remove_file(out_file).expect("Could not delete out file after error");
         error_handler(&e, &file);
     }
 }
