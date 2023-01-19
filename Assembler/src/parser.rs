@@ -231,12 +231,17 @@ fn parsed_data(line: &str, line_num: usize) -> Result<LineContent, LineError> {
 }
 
 fn parsed_label(line: &str, line_num: usize) -> Result<LineContent, LineError> {
-    // Trim whitespace and eliminate the ':' character at the end
-    let l = line[0..line.len()-1].to_string();
-    if l.contains(" ") || l.contains("\t") {
-        Err(LineError::LabelWhitespace(l, line_num))
-    } else {
-        Ok(LineContent::Label(l))
+    if line.matches(":").count() > 1 {
+        Err(LineError::LabelMoreColon(line.trim().to_string(), line_num))
+    }
+    else {
+        // Trim whitespace and eliminate the ':' character at the end
+        let l = line[0..line.len()-1].to_string();
+        if l.contains(" ") || l.contains("\t") {
+            Err(LineError::LabelWhitespace(l, line_num))
+        } else {
+            Ok(LineContent::Label(l))
+        }
     }
 }
 
@@ -289,6 +294,16 @@ mod tests {
         };
         assert_eq!(compare_symbols.labels, 
                    parse_symbols("test/file2.s").unwrap().labels);
+    }
+
+    #[test]
+    // Tests for section ranges [Test File 1]
+    fn sections_file1() {
+        let code_sec = 1..21;
+        let data_sec = 21..49;
+        let symbols = parse_symbols("test/file1.s").unwrap();
+        assert_eq!(code_sec, symbols.code_range().unwrap());
+        assert_eq!(data_sec, symbols.data_range().unwrap());
     }
 
     #[test]

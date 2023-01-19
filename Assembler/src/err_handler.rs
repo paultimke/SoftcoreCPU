@@ -14,6 +14,7 @@ pub enum LineError {
     WrongSection(String, usize),
     WrongArgs(String, usize),
     LabelWhitespace(String, usize),
+    LabelMoreColon(String, usize),
     Unrecognized(String, usize)
 }
 
@@ -62,6 +63,11 @@ pub fn error_handler(e: &LineError, file_name: &str) -> () {
                         Please do not use '{}' if you did not intend to \
                         declare a label\nLine Number: {}\n", 
                         header, msg.bold(), ":".red().bold(), n + 1);
+        }
+        LineError::LabelMoreColon(msg, n) => {
+            println!("{}Label name must only contain one '{}' in \
+                        its declaration: '{}'\nLine Number: {}\n", 
+                        header, ":".red().bold(), msg.bold(), n + 1);
         }
         LineError::Unrecognized(msg, n) => {
             println!("{}Did not recognize '{}'\nLine Number: {}\n", 
