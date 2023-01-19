@@ -1,8 +1,8 @@
-use std::{ops::ControlFlow};
+use std::ops::ControlFlow;
 use std::env;
 use std::fs::File;
 use std::path::Path;
-use std::io::Read;
+use std::io::{Read, Write, stdin, stdout};
 use colored::Colorize;
 
 pub mod instructions;
@@ -10,29 +10,26 @@ pub mod registers;
 use registers::*;
 pub mod cpu_cycle;
 use cpu_cycle::{fetch, decode, execute};
+pub mod cli;
+use cli::CLI;
 
 fn main() {
-    let args: Vec<String> = env::args().collect();
-    if !(args.len() == 2 || args.len() == 3) {
-        println!("{}: Please pass in 1 binary file as argument", "Error".red());
-        return;
-    }
-    let file_path = &args[1];
+    let cli = CLI::new(env::args().collect());
+
+    let mut input = String::new();
+    let stdin = stdin();
+    let mut stdout = stdout();
 
     // Declare hardware components
     let mut regs = Registers::new();  // Registers
     let mut mem = Vec::new();         // Main memory (16-bit words)
 
     // Load the bytes of the binary file into a vector (Main memory)
-    load_program(file_path, &mut mem);
+    load_program(&cli.file_path.unwrap(), &mut mem);
 
-    regs.print();
-
-    // TODO: 
-    //       - Add feature DEBUG to step through code on each iteration of the loop
-    //         by pressing some key (maybe space to continue)
-    //       - When on DEBUG, add feature to see register values when pressing
-    //         some key (maybe r)
+    if cli.debug {
+        CLI::print_debug_welcome();
+    }
  
     // Fetch-Decode-Execute Cycle
     loop {
@@ -45,31 +42,34 @@ fn main() {
             None => ()
         }
         regs.pc += 1;
+
+        if cli.debug {
+            stdin.read_line(&mut input).unwrap();
+            CLI::clear_screen();
+            CLI::print_debug_welcome();
+            CLI::print_curr_instruction(opcode);
+            regs.print();
+            stdout.flush().unwrap();
+        }
     }
 
     println!("{}", "\nProgram Halted Normaly\n".green().bold());
-    regs.print();
-
+    if !cli.debug {regs.print()}
+    stdin.read_line(&mut input).unwrap();
 }
+
+// *************************** HELPER FUNCTIONS **************************** //
 
 // Loads contents of binary executable file into a vector of
 // 16-bit words that will act as main memory
-fn load_program(bin_path: &str, mem: &mut Vec<u16>) -> () {
+fn load_program(bin_path: &String, mem: &mut Vec<u16>) -> () {
     let path = Path::new(bin_path);
     let mut file = File::open(path).expect("Can not find file");
     
     // Read entire file into a byte array
     let mut bytes: Vec<u8> = Vec::new();
     file.read_to_end(&mut bytes).expect("Could not read file");
-
-    // TODO: Read linker script Config.map to get actual stack size,
-    // For now, it will be hardcoded. This process and the linker script
-    // will actually need to live in the Assembler module (not the Emulator)
-    // but since we don't allocate the full size of RAM here (only what is needed)
-    // we do need to know what size to allocate.
-    // It will be the programmer's job to set the Stack Pointer
-    // to address CODE_SECTION_LENGTH + STACK_LENGTH. In this case 0x15E
-    // Sizes specified in words
+    
     const CODE_SECTION_LENGTH: usize = 300;
     const STACK_LENGTH: usize = 50;
     mem.resize(CODE_SECTION_LENGTH + STACK_LENGTH, 0);
